@@ -1,0 +1,727 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum OrganizationStatus {
+  ACTIVE
+  SUSPENDED
+  ARCHIVED
+}
+
+enum BranchStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+enum DepartmentStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum ServiceStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum QueueStatus {
+  OPEN
+  PAUSED
+}
+
+enum MembershipStatus {
+  INVITED
+  ACTIVE
+  SUSPENDED
+  REMOVED
+}
+
+enum Role {
+  SUPER_ADMIN
+  ORG_ADMIN
+  BRANCH_ADMIN
+  RECEPTIONIST
+  DOCTOR
+  COUNTER_OPERATOR
+  DISPLAY_OPERATOR
+}
+
+enum PriorityLevel {
+  EMERGENCY
+  VIP
+  SENIOR_CITIZEN
+  APPOINTMENT
+  NORMAL
+}
+
+enum AuditAction {
+  AUTH_LOGIN
+  AUTH_LOGIN_FAILED
+  AUTH_LOGOUT
+  ORGANIZATION_UPDATED
+  BRANCH_CREATED
+  BRANCH_UPDATED
+  BRANCH_ACTIVATED
+  BRANCH_DEACTIVATED
+  DEPARTMENT_CREATED
+  DEPARTMENT_UPDATED
+  DEPARTMENT_ACTIVATED
+  DEPARTMENT_DEACTIVATED
+  SERVICE_CREATED
+  SERVICE_UPDATED
+  SERVICE_ACTIVATED
+  SERVICE_DEACTIVATED
+  COUNTER_CREATED
+  COUNTER_UPDATED
+  COUNTER_ACTIVATED
+  COUNTER_DEACTIVATED
+  OPERATOR_ASSIGNED
+  OPERATOR_UNASSIGNED
+  PATIENT_CREATED
+  PATIENT_UPDATED
+  PATIENT_ACTIVATED
+  PATIENT_DEACTIVATED
+  QUEUE_ENTRY_CREATED
+  QUEUE_ENTRY_CANCELLED
+  TOKEN_CREATED
+  TOKEN_CANCELLED
+  TOKEN_CALLED
+  TOKEN_RECALLED
+  TOKEN_SKIPPED
+  TOKEN_SERVED
+  TOKEN_COMPLETED
+  APPOINTMENT_CREATED
+  APPOINTMENT_UPDATED
+  APPOINTMENT_CANCELLED
+  NOTIFICATION_SETTING_UPDATED
+  DISPLAY_UPDATED
+  PRIORITY_CONFIGURATION_CREATED
+  PRIORITY_CONFIGURATION_UPDATED
+  PRIORITY_CONFIGURATION_ACTIVATED
+  PRIORITY_CONFIGURATION_DEACTIVATED
+  PRINTER_CREATED
+  PRINTER_UPDATED
+  PRINTER_DELETED
+  PRINTER_REGISTERED
+  PRINT_JOB_CREATED
+  PRINT_JOB_CLAIMED
+  PRINT_JOB_PRINTED
+  PRINT_JOB_FAILED
+  APPOINTMENT_QR_SCANNED
+  SELF_SERVICE_CHECK_IN
+  QUEUE_PAUSED
+  QUEUE_RESUMED
+  ORGANIZATION_SETTINGS_UPDATED
+  BRANCH_SETTINGS_UPDATED
+  QUEUE_CONFIGURATION_UPDATED
+  SERVICE_CONFIGURATION_UPDATED
+  SUBSCRIPTION_CREATED
+  SUBSCRIPTION_UPDATED
+  SUBSCRIPTION_CANCELLED
+  SUBSCRIPTION_EXPIRED
+  SUBSCRIPTION_PLAN_CREATED
+  SUBSCRIPTION_PLAN_UPDATED
+  SUBSCRIPTION_PLAN_ACTIVATED
+  SUBSCRIPTION_PLAN_DEACTIVATED
+}
+
+enum AuditResourceType {
+  AUTH
+  ORGANIZATION
+  BRANCH
+  DEPARTMENT
+  SERVICE
+  COUNTER
+  OPERATOR_ASSIGNMENT
+  PATIENT
+  QUEUE_ENTRY
+  TOKEN
+  APPOINTMENT
+  NOTIFICATION_SETTING
+  DISPLAY
+  PRIORITY_CONFIGURATION
+  PRINTER
+  PRINT_JOB
+  SUBSCRIPTION_PLAN
+  ORGANIZATION_SUBSCRIPTION
+  QUEUE_CONFIGURATION
+}
+
+model Organization {
+  id                     String                    @id @default(uuid()) @db.Uuid
+  name                   String
+  slug                   String                    @unique
+  status                 OrganizationStatus        @default(ACTIVE)
+  timezone               String                    @default("UTC")
+  branches               Branch[]
+  memberships            Membership[]
+  auditLogs              AuditLog[]
+  priorityConfigurations PriorityConfiguration[]
+  subscription           OrganizationSubscription?
+  createdAt              DateTime                  @default(now())
+  updatedAt              DateTime                  @updatedAt
+
+  @@index([status])
+}
+
+model Branch {
+  id                   String               @id @default(uuid()) @db.Uuid
+  organizationId       String               @db.Uuid
+  name                 String
+  code                 String?
+  status               BranchStatus         @default(ACTIVE)
+  queueStatus          QueueStatus          @default(OPEN)
+  organization         Organization         @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  memberships          Membership[]
+  departments          Department[]
+  counters             Counter[]
+  patients             Patient[]
+  tokenSequences       TokenSequence[]
+  displays             Display[]
+  notificationSettings NotificationSetting?
+  notifications        Notification[]
+  appointments         Appointment[]
+  branchWorkingHours   BranchWorkingHours[]
+  holidays             BranchHoliday[]
+  queueConfiguration   QueueConfiguration?
+  auditLogs            AuditLog[]
+  printers             Printer[]
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+
+  @@unique([organizationId, name])
+  @@unique([organizationId, code])
+  @@index([organizationId])
+  @@index([organizationId, status])
+}
+
+model Department {
+  id                     String                  @id @default(uuid()) @db.Uuid
+  branchId               String                  @db.Uuid
+  name                   String
+  status                 DepartmentStatus        @default(ACTIVE)
+  branch                 Branch                  @relation(fields: [branchId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  services               Service[]
+  priorityConfigurations PriorityConfiguration[]
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+
+  @@unique([branchId, name])
+  @@index([branchId])
+  @@index([branchId, status])
+}
+
+model Display {
+  id        String   @id @default(uuid()) @db.Uuid
+  branchId  String   @db.Uuid
+  publicId  String   @unique
+  name      String
+  active    Boolean  @default(true)
+  branch    Branch   @relation(fields: [branchId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([branchId, name])
+  @@index([branchId, active])
+}
+
+model Service {
+  id                    String          @id @default(uuid()) @db.Uuid
+  departmentId          String          @db.Uuid
+  name                  String
+  status                ServiceStatus   @default(ACTIVE)
+  durationMinutes       Int             @default(15)
+  acceptingQueueEntries Boolean         @default(true)
+  department            Department      @relation(fields: [departmentId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  queueEntries          QueueEntry[]
+  tokenSequences        TokenSequence[]
+  appointments          Appointment[]
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  @@unique([departmentId, name])
+  @@index([departmentId])
+  @@index([departmentId, status])
+}
+
+model User {
+  id                 String              @id @default(uuid()) @db.Uuid
+  email              String              @unique
+  displayName        String
+  passwordHash       String?
+  memberships        Membership[]
+  counterAssignments CounterAssignment[]
+  operatedTokens     Token[]
+  refreshSessions    RefreshSession[]
+  auditLogs          AuditLog[]
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  @@index([email])
+}
+
+model Membership {
+  id             String           @id @default(uuid()) @db.Uuid
+  organizationId String           @db.Uuid
+  userId         String           @db.Uuid
+  branchId       String?          @db.Uuid
+  role           Role
+  status         MembershipStatus @default(INVITED)
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  user           User             @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch         Branch?          @relation(fields: [branchId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@unique([userId, organizationId])
+  @@index([organizationId])
+  @@index([userId])
+  @@index([organizationId, branchId])
+  @@index([organizationId, role])
+  @@index([organizationId, status])
+}
+
+enum CounterStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum PatientStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum QueueEntryStatus {
+  WAITING
+  CANCELLED
+}
+
+enum TokenStatus {
+  WAITING
+  CALLED
+  SERVING
+  COMPLETED
+  SKIPPED
+  CANCELLED
+}
+
+enum NotificationChannel {
+  SMS
+  WHATSAPP
+}
+
+enum NotificationEventType {
+  TOKEN_CREATED
+  TOKEN_CALLED
+  TOKEN_RECALLED
+  TOKEN_COMPLETED
+  TOKEN_CANCELLED
+}
+
+enum NotificationStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  FAILED
+}
+
+model Counter {
+  id          String              @id @default(uuid()) @db.Uuid
+  branchId    String              @db.Uuid
+  name        String
+  code        String
+  status      CounterStatus       @default(ACTIVE)
+  branch      Branch              @relation(fields: [branchId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  assignments CounterAssignment[]
+  tokens      Token[]
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  @@unique([branchId, code])
+  @@index([branchId])
+  @@index([branchId, status])
+}
+
+model CounterAssignment {
+  id        String   @id @default(uuid()) @db.Uuid
+  counterId String   @db.Uuid
+  userId    String   @db.Uuid
+  counter   Counter  @relation(fields: [counterId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([counterId, userId])
+  @@index([counterId])
+  @@index([userId])
+}
+
+model Patient {
+  id            String        @id @default(uuid()) @db.Uuid
+  branchId      String        @db.Uuid
+  patientNumber String
+  firstName     String
+  lastName      String
+  phone         String?
+  email         String?
+  status        PatientStatus @default(ACTIVE)
+  branch        Branch        @relation(fields: [branchId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  queueEntries  QueueEntry[]
+  appointments  Appointment[]
+
+  @@unique([branchId, patientNumber])
+  @@index([branchId])
+  @@index([branchId, status])
+  @@index([branchId, lastName, firstName])
+  @@index([branchId, phone])
+}
+
+model QueueEntry {
+  id             String           @id @default(uuid()) @db.Uuid
+  patientId      String           @db.Uuid
+  serviceId      String           @db.Uuid
+  status         QueueEntryStatus @default(WAITING)
+  activeEntryKey String?          @unique
+  priority       PriorityLevel    @default(NORMAL)
+  priorityWeight Int              @default(0)
+  patient        Patient          @relation(fields: [patientId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  service        Service          @relation(fields: [serviceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  token          Token?
+
+  @@index([patientId, createdAt])
+  @@index([serviceId, createdAt])
+  @@index([status, createdAt])
+  @@index([priorityWeight, createdAt])
+}
+
+model TokenSequence {
+  id           String   @id @default(uuid()) @db.Uuid
+  branchId     String   @db.Uuid
+  serviceId    String   @db.Uuid
+  businessDate DateTime @db.Date
+  nextNumber   Int      @default(1)
+  branch       Branch   @relation(fields: [branchId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  service      Service  @relation(fields: [serviceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  tokens       Token[]
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([branchId, serviceId, businessDate])
+  @@index([branchId, businessDate])
+}
+
+model Token {
+  id             String         @id @default(uuid()) @db.Uuid
+  queueEntryId   String         @unique @db.Uuid
+  sequenceId     String         @db.Uuid
+  counterId      String?        @db.Uuid
+  operatorId     String?        @db.Uuid
+  sequenceNumber Int
+  displayNumber  String
+  businessDate   DateTime       @db.Date
+  status         TokenStatus    @default(WAITING)
+  issuedAt       DateTime       @default(now())
+  calledAt       DateTime?
+  servingAt      DateTime?
+  completedAt    DateTime?
+  skippedAt      DateTime?
+  recalledAt     DateTime?
+  recallCount    Int            @default(0)
+  queueEntry     QueueEntry     @relation(fields: [queueEntryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  sequence       TokenSequence  @relation(fields: [sequenceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  counter        Counter?       @relation(fields: [counterId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  operator       User?          @relation(fields: [operatorId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  notifications  Notification[]
+  printJobs      PrintJob[]
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  @@unique([sequenceId, sequenceNumber])
+  @@unique([sequenceId, displayNumber])
+  @@index([counterId, status])
+  @@index([operatorId, status])
+  @@index([businessDate, status])
+}
+
+model NotificationSetting {
+  id                   String   @id @default(uuid()) @db.Uuid
+  branchId             String   @unique @db.Uuid
+  announcementEnabled  Boolean  @default(true)
+  soundEnabled         Boolean  @default(true)
+  language             String   @default("en-US")
+  speechRate           Float    @default(1)
+  announcementVolume   Float    @default(1)
+  announcementTemplate String   @default("Token {token}, please proceed to {counter}.")
+  smsEnabled           Boolean  @default(false)
+  whatsappEnabled      Boolean  @default(false)
+  branch               Branch   @relation(fields: [branchId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
+model Notification {
+  id                String                @id @default(uuid()) @db.Uuid
+  branchId          String                @db.Uuid
+  tokenId           String                @db.Uuid
+  channel           NotificationChannel
+  eventType         NotificationEventType
+  status            NotificationStatus    @default(QUEUED)
+  provider          String                @default("noop")
+  providerMessageId String?
+  attempts          Int                   @default(0)
+  errorCode         String?
+  sentAt            DateTime?
+  failedAt          DateTime?
+  branch            Branch                @relation(fields: [branchId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  token             Token                 @relation(fields: [tokenId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+
+  @@index([branchId, createdAt])
+  @@index([branchId, status])
+  @@index([tokenId])
+}
+
+model RefreshSession {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  tokenHash String
+  userAgent String?
+  ipAddress String?
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([userId])
+  @@index([tokenHash])
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  CONFIRMED
+  CHECKED_IN
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+model Appointment {
+  id              String            @id @default(uuid()) @db.Uuid
+  patientId       String            @db.Uuid
+  serviceId       String            @db.Uuid
+  branchId        String            @db.Uuid
+  appointmentDate DateTime          @db.Date
+  startAt         DateTime
+  endAt           DateTime?
+  status          AppointmentStatus @default(SCHEDULED)
+  notes           String?
+
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch  Branch  @relation(fields: [branchId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([serviceId, appointmentDate, startAt])
+  @@index([branchId, appointmentDate])
+  @@index([serviceId, appointmentDate])
+  @@index([patientId, appointmentDate])
+}
+
+model BranchWorkingHours {
+  id        String  @id @default(uuid()) @db.Uuid
+  branchId  String  @db.Uuid
+  dayOfWeek Int // 0 = Sunday .. 6 = Saturday
+  openTime  String // HH:MM
+  closeTime String // HH:MM
+  active    Boolean @default(true)
+
+  branch    Branch   @relation(fields: [branchId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([branchId, dayOfWeek])
+  @@index([branchId, active])
+}
+
+model AuditLog {
+  id             String            @id @default(uuid()) @db.Uuid
+  organizationId String            @db.Uuid
+  branchId       String?           @db.Uuid
+  actorUserId    String?           @db.Uuid
+  action         AuditAction
+  resourceType   AuditResourceType
+  resourceId     String?           @db.Uuid
+  metadata       Json              @default("{}")
+  ipAddress      String?
+  userAgent      String?
+  createdAt      DateTime          @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch       Branch?      @relation(fields: [branchId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  actorUser    User?        @relation(fields: [actorUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([organizationId, createdAt])
+  @@index([branchId, createdAt])
+  @@index([action, createdAt])
+  @@index([resourceType, resourceId])
+  @@index([actorUserId, createdAt])
+}
+
+model PriorityConfiguration {
+  id             String        @id @default(uuid()) @db.Uuid
+  organizationId String        @db.Uuid
+  departmentId   String?       @db.Uuid
+  level          PriorityLevel
+  weight         Int           @default(0)
+  active         Boolean       @default(true)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  department   Department?  @relation(fields: [departmentId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId])
+  @@index([departmentId])
+  @@index([organizationId, departmentId, level])
+}
+
+enum PrinterStatus {
+  ONLINE
+  OFFLINE
+  ERROR
+}
+
+enum PrintJobStatus {
+  PENDING
+  CLAIMED
+  PRINTING
+  PRINTED
+  FAILED
+  CANCELLED
+  EXPIRED
+}
+
+model Printer {
+  id                   String        @id @default(uuid()) @db.Uuid
+  branchId             String        @db.Uuid
+  name                 String
+  pairingCode          String?       @unique
+  pairingCodeExpiresAt DateTime?
+  secretHash           String?
+  status               PrinterStatus @default(OFFLINE)
+  lastSeen             DateTime?
+  lastError            String?
+  branch               Branch        @relation(fields: [branchId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  jobs                 PrintJob[]
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  @@index([branchId])
+}
+
+model PrintJob {
+  id             String         @id @default(uuid()) @db.Uuid
+  printerId      String         @db.Uuid
+  tokenId        String         @db.Uuid
+  idempotencyKey String         @unique
+  status         PrintJobStatus @default(PENDING)
+  attempts       Int            @default(0)
+  lastError      String?
+  printedAt      DateTime?
+  expiresAt      DateTime?
+
+  printer Printer @relation(fields: [printerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  token   Token   @relation(fields: [tokenId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([printerId, status])
+  @@index([tokenId])
+}
+
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+  EXPIRED
+}
+
+model SubscriptionPlan {
+  id            String                     @id @default(uuid()) @db.Uuid
+  name          String
+  code          String                     @unique
+  description   String?
+  monthlyPrice  Decimal                    @default(0) @db.Decimal(10, 2)
+  yearlyPrice   Decimal                    @default(0) @db.Decimal(10, 2)
+  active        Boolean                    @default(true)
+  limits        Json                       @default("{}")
+  features      Json                       @default("{}")
+  createdAt     DateTime                   @default(now())
+  updatedAt     DateTime                   @updatedAt
+  subscriptions OrganizationSubscription[]
+}
+
+model OrganizationSubscription {
+  id             String             @id @default(uuid()) @db.Uuid
+  organizationId String             @unique @db.Uuid
+  planId         String             @db.Uuid
+  status         SubscriptionStatus @default(TRIAL)
+  startsAt       DateTime           @default(now())
+  endsAt         DateTime?
+  trialEndsAt    DateTime?
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  plan         SubscriptionPlan @relation(fields: [planId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId, status])
+  @@index([planId])
+}
+
+model QueueConfiguration {
+  id                       String        @id @default(uuid()) @db.Uuid
+  branchId                 String        @unique @db.Uuid
+  maxWaitingQueueSize      Int           @default(1000)
+  maxDailyTokens           Int           @default(2000)
+  defaultPriority          PriorityLevel @default(NORMAL)
+  allowWalkIns             Boolean       @default(true)
+  allowAppointmentCheckIns Boolean       @default(true)
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model BranchHoliday {
+  id          String   @id @default(uuid()) @db.Uuid
+  branchId    String   @db.Uuid
+  date        DateTime @db.Date
+  description String?
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([branchId, date])
+}

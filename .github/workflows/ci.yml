@@ -1,0 +1,101 @@
+﻿name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+  checks: write
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgresql://queue_user:queue_password@localhost:5432/queue_management?schema=public
+      REDIS_URL: redis://localhost:6379
+      NODE_ENV: test
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: queue_management
+          POSTGRES_USER: queue_user
+          POSTGRES_PASSWORD: queue_password
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate Prisma schema
+        run: npm run prisma:validate
+
+      - name: Generate Prisma client
+        run: npm run prisma:generate
+
+      - name: Check for secrets in code
+        run: |
+          if grep -r "AKIA\|aws_secret_access_key\|-----BEGIN PRIVATE KEY-----" . --include="*.ts" --include="*.js" --include="*.json" --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=dist 2>/dev/null; then
+            echo "ERROR: Potential secrets found in code"
+            exit 1
+          fi
+          echo "✓ No obvious secrets detected in code"
+
+      - name: Lint code
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Run tests
+        run: npm run test
+
+      - name: Build all packages
+        run: npm run build
+
+      - name: Verify build artifacts
+        run: |
+          if [ ! -d "apps/api/dist" ]; then echo "ERROR: API build failed"; exit 1; fi
+          if [ ! -d "apps/web/.next" ]; then echo "ERROR: Web build failed"; exit 1; fi
+          echo "✓ All build artifacts present"
+
+      - name: Audit dependencies
+        run: npm audit --audit-level=moderate
+
+      - name: Verify no uncommitted changes
+        run: |
+          if [ -n "\" ]; then
+            echo "ERROR: Uncommitted changes detected (Prisma client may need regeneration)"
+            git diff
+            exit 1
+          fi
+          echo "✓ No uncommitted changes"

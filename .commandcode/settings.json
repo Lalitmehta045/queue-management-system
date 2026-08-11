@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Shell(npx prisma migrate status 2 >& 1)",
+      "Shell(wmic:*)",
+      "Shell(dir:*)",
+      "Shell(taskkill:*)",
+      "Shell(npx prisma generate 2 >& 1)",
+      "Shell(npx prisma validate 2 >& 1)",
+      "Shell(npm:*)",
+      "config",
+      "Shell(npx eslint apps/api/src --max-warnings=0 2 >& 1)",
+      "Shell(rm:*)",
+      "Shell(cd \"C:\\Users\\HP-PC\\OneDrive\\Desktop\\Queue Management System\" && del package-lock.json && rmdir /s /q node_modules 2>nul & npm install 2>&1)",
+      "Shell(cd \"C:\\Users\\HP-PC\\OneDrive\\Desktop\\Queue Management System\" && rmdir /s /q node_modules 2>nul & del /q package-lock.json 2>nul & npm install 2>&1)"
+    ],
+    "deny": [],
+    "defaultMode": "default"
+  }
+}

@@ -1,0 +1,16 @@
+- Prefers non-destructive database and migration operations: never uses `prisma migrate reset`, `DROP DATABASE`, `DROP SCHEMA`, or deletion/reordering of historical migrations. Confidence: 0.95
+- Prefers verification by actually running commands and reporting real results, not static inspection alone. Confidence: 0.9
+- Prefers targeted root-cause fixes over broad changes; does not weaken or remove tests to make them pass. Confidence: 0.9
+- Prefers preserving existing project architecture rather than rewriting it when fixing issues. Confidence: 0.85
+- In multi-tenant systems, never trusts client-provided tenant/organization/branch IDs from request bodies, query strings, or route params for authorization — always resolves ownership server-side through authenticated session. Confidence: 0.95
+- Prefers ORM-first queries; uses raw SQL only when the ORM cannot express the operation (e.g., timestamp-difference aggregations), and always fully parameterizes + documents the justification. Confidence: 0.9
+- Does not fabricate metrics or data that the current schema or lifecycle cannot support — reports only what the data model can substantiate. Confidence: 0.85
+- Requires comprehensive security testing for tenant-isolated features: organization isolation, branch isolation, IDOR attempts, forged tenant headers, suspended membership, unauthorized roles, and sensitive-field exclusion. Confidence: 0.9
+- Prefers not introducing new frameworks or libraries when existing ones in the repository already suffice. Confidence: 0.85
+- Creates feature-level documentation (e.g., docs/FEATURE.md) and updates ARCHITECTURE.md and SECURITY.md for each significant phase or feature addition. Confidence: 0.85
+- Never creates or modifies .npmrc files. Confidence: 0.95
+- Does not modify package.json engine requirements or automatically install/downgrade Node/npm versions to suppress engine warnings — only acts on genuine compatibility failures, not warnings. Confidence: 0.95
+- Continues implementation and quality checks despite engine warnings (e.g., EBADENGINE) unless they cause actual command failures, rather than stopping to fix them. Confidence: 0.9
+- Reports engine warning details (package name, required versions, current versions, impact assessment) after quality gate completion rather than interrupting work to resolve them. Confidence: 0.85
+- Prefers fully autonomous execution with all permissions granted: run commands and make changes without asking for permission, approval, or confirmation first (explicitly stated: "all permission allow, no need to ask or approval"). Confidence: 0.98
+- Communicates in casual Hinglish (Hindi-English mix, informal register such as "bro"/"bhai") and is comfortable with responses in the same tone. Confidence: 0.6

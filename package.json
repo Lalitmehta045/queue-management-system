@@ -1,0 +1,41 @@
+{
+  "name": "smart-queue-management-system",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Production foundation for a multi-tenant Smart Queue Management SaaS.",
+  "workspaces": [
+    "apps/web",
+    "apps/api",
+    "packages/shared"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspaces --if-present",
+    "dev:web": "npm run dev -w apps/web",
+    "dev:api": "npm run start:dev -w apps/api",
+    "build": "npm run build --workspaces --if-present",
+    "build:web": "npm run build -w apps/web",
+    "build:api": "npm run build -w apps/api",
+    "lint": "npm run lint --workspaces --if-present",
+    "lint:web": "npm run lint -w apps/web",
+    "lint:api": "npm run lint -w apps/api",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "typecheck:web": "npm run typecheck -w apps/web",
+    "typecheck:api": "npm run typecheck -w apps/api",
+    "test": "npm run test --workspaces --if-present",
+    "test:api": "npm run test -w apps/api",
+    "prisma:validate": "prisma validate --schema prisma/schema.prisma",
+    "prisma:generate": "prisma generate --schema prisma/schema.prisma",
+    "prisma:migrate": "prisma migrate dev --schema prisma/schema.prisma",
+    "prisma:seed": "npx prisma db seed"
+  },
+  "prisma": {
+    "seed": "npx tsx prisma/seed.ts"
+  },
+  "devDependencies": {
+    "prisma": "^6.13.0"
+  },
+  "engines": {
+    "node": "^20.19.0 || ^22.13.0 || >=24.0.0",
+    "npm": ">=10.0.0"
+  }
+}
