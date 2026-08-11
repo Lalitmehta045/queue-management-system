@@ -14,7 +14,6 @@ describe("validateEnvironment", () => {
       validateEnvironment({
         NODE_ENV: "production",
         DATABASE_URL: "postgresql://user:pass@localhost:5432/db",
-        REDIS_URL: "redis://localhost:6379",
         CORS_ORIGIN: "https://example.com",
         PORT: "4000"
       })
@@ -26,7 +25,6 @@ describe("validateEnvironment", () => {
       validateEnvironment({
         NODE_ENV: "production",
         DATABASE_URL: "postgresql://user:pass@localhost:5432/db",
-        REDIS_URL: "redis://localhost:6379",
         JWT_ACCESS_SECRET: "replace-with-a-long-random-access-secret",
         JWT_REFRESH_SECRET: "replace-with-a-long-random-refresh-secret",
         CORS_ORIGIN: "https://example.com",

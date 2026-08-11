@@ -4,7 +4,6 @@ export type ValidatedEnvironment = {
   NODE_ENV: NodeEnvironment;
   PORT: number;
   DATABASE_URL: string;
-  REDIS_URL: string;
   JWT_ACCESS_SECRET: string;
   JWT_REFRESH_SECRET: string;
   CORS_ORIGIN: string;
@@ -15,7 +14,6 @@ export type ValidatedEnvironment = {
 const DEVELOPMENT_DEFAULTS = {
   DATABASE_URL:
     "postgresql://queue_user:queue_password@localhost:5432/queue_management?schema=public",
-  REDIS_URL: "redis://localhost:6379",
   JWT_ACCESS_SECRET: "development-only-access-secret-change-before-production",
   JWT_REFRESH_SECRET: "development-only-refresh-secret-change-before-production",
   CORS_ORIGIN: "http://localhost:3000",
@@ -83,7 +81,6 @@ export function validateEnvironment(
   }
 
   const databaseUrl = readString(config, "DATABASE_URL", nodeEnv);
-  const redisUrl = readString(config, "REDIS_URL", nodeEnv);
   const jwtAccessSecret = readString(config, "JWT_ACCESS_SECRET", nodeEnv);
   const jwtRefreshSecret = readString(config, "JWT_REFRESH_SECRET", nodeEnv);
   const corsOrigin = readString(config, "CORS_ORIGIN", nodeEnv);
@@ -101,7 +98,6 @@ export function validateEnvironment(
     NODE_ENV: nodeEnv,
     PORT: port,
     DATABASE_URL: databaseUrl,
-    REDIS_URL: redisUrl,
     JWT_ACCESS_SECRET: jwtAccessSecret,
     JWT_REFRESH_SECRET: jwtRefreshSecret,
     CORS_ORIGIN: corsOrigin,
