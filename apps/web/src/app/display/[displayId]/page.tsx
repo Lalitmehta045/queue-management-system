@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { use, useEffect, useRef, useState } from 'react';
+import type { PublicToken, DisplaySnapshot, DisplayPageState } from '../../../types/queue';
 import {
   AnnouncementSpeaker,
   loadAnnouncementSettings,
@@ -11,42 +12,23 @@ import {
   type AnnouncementSettings,
 } from '../../../lib/announcements';
 
-type PublicToken = {
-  tokenLabel: string;
-  counter: string;
-  status: 'CALLED' | 'SERVING' | 'COMPLETED' | 'SKIPPED' | 'CANCELLED' | 'WAITING';
-  service?: string;
-  department?: string;
-  recalled: boolean;
-  recallCount: number;
-  calledAt: string | null;
-};
-type Snapshot = {
-  display: { name: string };
-  current: PublicToken | null;
-  recent: PublicToken[];
-  waitingSummary: { total: number };
-  updatedAt: string;
-};
 const displayEventTypes = ['QUEUE_UPDATED', 'TOKEN_CALLED', 'TOKEN_SERVED', 'TOKEN_RECALLED', 'TOKEN_SKIPPED', 'TOKEN_COMPLETED'] as const;
 
 export default function PublicDisplayPage({ params }: { params: Promise<{ displayId: string }> }) {
-  const [displayId, setDisplayId] = useState('');
-  const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
-  const [state, setState] = useState<'loading' | 'ready' | 'reconnecting' | 'error'>('loading');
+  const { displayId } = use(params);
+  const [snapshot, setSnapshot] = useState<DisplaySnapshot | null>(null);
+  const [state, setState] = useState<DisplayPageState>('loading');
   const [lastToken, setLastToken] = useState('');
   const [announcementSettings, setAnnouncementSettings] = useState<AnnouncementSettings>(() => loadAnnouncementSettings());
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [showSettings, setShowSettings] = useState(false);
   const [voiceUnavailable, setVoiceUnavailable] = useState(false);
-  const snapshotRef = useRef<Snapshot | null>(null);
+  
+  const snapshotRef = useRef<DisplaySnapshot | null>(null);
   const speakerRef = useRef<AnnouncementSpeaker | null>(null);
   const settingsRef = useRef<AnnouncementSettings>(announcementSettings);
+  
   const supportsSpeech = speechSupported();
-
-  useEffect(() => {
-    void params.then(({ displayId: id }) => setDisplayId(id));
-  }, [params]);
 
   // Respect prefers-reduced-motion: announcements stay disabled by default for
   // these users unless they explicitly enable them.
@@ -87,9 +69,11 @@ export default function PublicDisplayPage({ params }: { params: Promise<{ displa
     if (!displayId) return;
     let cancelled = false;
     const source = new EventSource(`/api/public/displays/${encodeURIComponent(displayId)}/events`);
+    
     const handleSnapshot = (eventType: (typeof displayEventTypes)[number]) => (event: MessageEvent<string>) => {
-      const next = JSON.parse(event.data) as Snapshot;
+      const next = JSON.parse(event.data) as DisplaySnapshot;
       if (cancelled) return;
+      
       setSnapshot((previous) => {
         if (previous?.current?.tokenLabel !== next.current?.tokenLabel || previous?.current?.recallCount !== next.current?.recallCount) {
           setLastToken(next.current?.tokenLabel ?? '');
@@ -98,7 +82,9 @@ export default function PublicDisplayPage({ params }: { params: Promise<{ displa
         snapshotRef.current = next;
         return next;
       });
+      
       setState('ready');
+      
       if ((eventType === 'TOKEN_CALLED' || eventType === 'TOKEN_RECALLED') && next.current) {
         const current = next.current;
         const settings = settingsRef.current;
@@ -108,13 +94,16 @@ export default function PublicDisplayPage({ params }: { params: Promise<{ displa
         }
       }
     };
+    
     const handlers = displayEventTypes.map((eventType) => ({ eventType, handler: handleSnapshot(eventType) }));
     for (const { eventType, handler } of handlers) {
       source.addEventListener(eventType, handler);
     }
+    
     source.onopen = () => {
       if (!cancelled && snapshotRef.current) setState('ready');
     };
+    
     source.onerror = () => {
       if (!cancelled) setState(snapshotRef.current ? 'reconnecting' : 'error');
     };
@@ -135,7 +124,7 @@ export default function PublicDisplayPage({ params }: { params: Promise<{ displa
       try {
         const response = await fetch(`/api/public/displays/${encodeURIComponent(displayId)}`, { cache: 'no-store' });
         if (!response.ok) return;
-        const next = await response.json() as Snapshot;
+        const next = await response.json() as DisplaySnapshot;
         if (!cancelled) {
           snapshotRef.current = next;
           setSnapshot(next);
@@ -166,10 +155,25 @@ export default function PublicDisplayPage({ params }: { params: Promise<{ displa
   if (state === 'error') return <main className="public-display"><p className="display-status">Display unavailable</p></main>;
   if (!snapshot) return <main className="public-display"><p className="display-status">Connecting...</p></main>;
 
+  const activeCounters = new Map<string, PublicToken>();
+  if (snapshot.current) {
+    activeCounters.set(snapshot.current.counter, snapshot.current);
+  }
+  for (const token of snapshot.recent) {
+    if (!activeCounters.has(token.counter)) {
+      activeCounters.set(token.counter, token);
+    }
+  }
+  const countersList = Array.from(activeCounters.values());
+
   return (
     <main className="public-display">
       <header className="display-header">
-        <div><p className="display-kicker">SMART QUEUE</p><h1>{snapshot.display.name}</h1>{state === 'reconnecting' && <p className="display-status">Reconnecting...</p>}</div>
+        <div>
+          <p className="display-kicker">SMART QUEUE</p>
+          <h1>{snapshot.display.name}</h1>
+          {state === 'reconnecting' && <p className="display-status">Reconnecting...</p>}
+        </div>
         <div className="display-controls">
           {voiceUnavailable ? (
             <span className="display-control-note" title="Speech synthesis is not available in this browser">🔇 Voice unavailable</span>
@@ -202,9 +206,55 @@ export default function PublicDisplayPage({ params }: { params: Promise<{ displa
           )}
         </div>
       </header>
-      <section className={`now-serving ${lastToken ? 'token-changed' : ''}`} aria-live="polite"><p className="display-kicker">NOW SERVING</p>{snapshot.current ? <><strong>{snapshot.current.tokenLabel}</strong><span>{snapshot.current.counter}</span><small>{snapshot.current.status}{snapshot.current.recalled ? ' - RECALLED' : ''}</small></> : <p className="no-current">No tokens currently being served</p>}</section>
-      <section className="display-section"><div className="display-section-heading"><h2>RECENTLY CALLED</h2><span>{snapshot.recent.length}</span></div>{snapshot.recent.length ? <div className="recent-list">{snapshot.recent.map((token) => <div className="recent-item" key={`${token.tokenLabel}-${token.counter}`}><strong>{token.tokenLabel}</strong><span>{token.counter}</span></div>)}</div> : <p className="display-muted">No recent calls</p>}</section>
-      <section className="waiting-total"><p className="display-kicker">WAITING</p><strong>{snapshot.waitingSummary.total}</strong><span>TOKENS</span></section>
+
+      {countersList.length > 0 && (
+        <div className="dsp-counter-grid">
+          {countersList.map(token => (
+            <div key={token.counter} className={`dsp-counter-cell ${token.tokenLabel === snapshot.current?.tokenLabel ? 'dsp-counter-active' : ''}`}>
+              <div className="dsp-counter-label">{token.counter}</div>
+              <div className="dsp-counter-token">{token.tokenLabel}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <section className={`now-serving ${lastToken ? 'token-changed' : ''}`} aria-live="polite">
+        <p className="display-kicker">NOW SERVING</p>
+        {snapshot.current ? (
+          <>
+            <strong>{snapshot.current.tokenLabel}</strong>
+            <span>{snapshot.current.counter}</span>
+            <small>{snapshot.current.status}{snapshot.current.recalled ? ' - RECALLED' : ''}</small>
+          </>
+        ) : (
+          <p className="no-current">No tokens currently being served</p>
+        )}
+      </section>
+
+      <section className="display-section">
+        <div className="display-section-heading">
+          <h2>RECENTLY CALLED</h2>
+          <span>{snapshot.recent.length}</span>
+        </div>
+        {snapshot.recent.length > 0 ? (
+          <div className="recent-list">
+            {snapshot.recent.map((token, idx) => (
+              <div className="recent-item" key={`${token.tokenLabel}-${token.counter}-${idx}`}>
+                <strong>{token.tokenLabel}</strong>
+                <span>{token.counter}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="display-muted">No recent calls</p>
+        )}
+      </section>
+
+      <section className="waiting-total">
+        <p className="display-kicker">WAITING</p>
+        <strong>{snapshot.waitingSummary.total}</strong>
+        <span>TOKENS</span>
+      </section>
     </main>
   );
 }

@@ -54,6 +54,19 @@ export class TokensService {
           });
           await this.entitlements.enforceVolumeLimit(tenant.organizationId, 'maxDailyTokens', dailyTokenCount, 1, tx);
 
+          const lockedEntries = await tx.$queryRaw<{ id: string }[]>`
+            SELECT q.id FROM "QueueEntry" q
+            INNER JOIN "Patient" p ON q."patientId" = p.id
+            INNER JOIN "Branch" b ON p."branchId" = b.id
+            WHERE q.id = ${queueEntryId}::uuid
+              AND p."branchId" = ${branchId}::uuid
+              AND b."organizationId" = ${tenant.organizationId}::uuid
+            FOR UPDATE
+          `;
+          if (!lockedEntries.length) {
+            throw new NotFoundException('Queue entry not found or is not eligible for a token');
+          }
+
           const queueEntry = await tx.queueEntry.findFirst({
             where: {
               id: queueEntryId,

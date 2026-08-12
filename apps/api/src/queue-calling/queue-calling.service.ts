@@ -31,6 +31,16 @@ export class QueueCallingService {
   async callNext(tenant: Tenant, userId: string, branchId: string, counterId: string, auditContext?: AuditContext) {
     const counter = await this.authorizeCounter(tenant, userId, branchId, counterId);
     const token = await this.prisma.$transaction(async (tx) => {
+      const lockedCounters = await tx.$queryRaw<{ id: string }[]>`
+        SELECT c.id FROM "Counter" c
+        INNER JOIN "Branch" b ON c."branchId" = b.id
+        WHERE c.id = ${counter.id}::uuid
+          AND c."branchId" = ${branchId}::uuid
+          AND b."organizationId" = ${tenant.organizationId}::uuid
+        FOR UPDATE
+      `;
+      if (!lockedCounters.length) throw new NotFoundException('Counter not found or not eligible for locking');
+
       await this.ensureCounterAvailable(tx, tenant.organizationId, branchId, counter.id);
       
       const starvationThreshold = new Date(Date.now() - 60 * 60 * 1000); // 1 hour
@@ -72,6 +82,16 @@ export class QueueCallingService {
     if (!scopedToken) throw new NotFoundException('Token not found');
     try {
       const token = await this.prisma.$transaction(async (tx) => {
+        const lockedCounters = await tx.$queryRaw<{ id: string }[]>`
+          SELECT c.id FROM "Counter" c
+          INNER JOIN "Branch" b ON c."branchId" = b.id
+          WHERE c.id = ${counter.id}::uuid
+            AND c."branchId" = ${branchId}::uuid
+            AND b."organizationId" = ${tenant.organizationId}::uuid
+          FOR UPDATE
+        `;
+        if (!lockedCounters.length) throw new NotFoundException('Counter not found or not eligible for locking');
+
         await this.ensureCounterAvailable(tx, tenant.organizationId, branchId, counter.id);
         const claimed = await tx.token.updateMany({
           where: { id: tokenId, ...this.waitingScope(tenant.organizationId, branchId), counterId: null },

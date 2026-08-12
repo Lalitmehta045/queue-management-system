@@ -1,8 +1,16 @@
 'use client';
 
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { fetchWithAuth } from '../../../lib/auth-client';
+import { Button } from '../../../components/ui/Button';
+import { Card, CardHeader, CardTitle, CardContent } from '../../../components/ui/Card';
+import { Input } from '../../../components/ui/Input';
+import { Select } from '../../../components/ui/Select';
+import { Badge } from '../../../components/ui/Badge';
+import { TableSkeleton } from '../../../components/ui/Skeleton';
+import { EmptyState } from '../../../components/ui/EmptyState';
+import { ErrorState } from '../../../components/ui/ErrorState';
 
 type Membership = { organization: { id: string; name: string }; role: string; status: string; branchId: string | null };
 type User = { memberships: Membership[] };
@@ -26,46 +34,77 @@ export default function PatientsPage() {
   const [state, setState] = useState<'loading' | 'ready' | 'error' | 'forbidden'>('loading');
   const [message, setMessage] = useState('');
   const [formOpen, setFormOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const isMounted = useRef(true);
+  useEffect(() => {
+    isMounted.current = true;
+    return () => { isMounted.current = false; };
+  }, []);
 
   useEffect(() => {
     async function loadContext() {
-      const meResponse = await fetchWithAuth('/api/auth/me');
-      if (meResponse.status === 401) { router.push('/login'); return; }
-      if (!meResponse.ok) { setState('error'); return; }
-      const user = await meResponse.json() as User;
-      const membership = user.memberships[0];
-      if (!membership) { setState('error'); return; }
-      setOrganizationId(membership.organization.id);
-      if (membership.branchId) {
-        setBranchId(membership.branchId);
-        setBranches([{ id: membership.branchId, name: 'Assigned branch', code: null }]);
-        return;
+      try {
+        const meResponse = await fetchWithAuth('/api/auth/me');
+        if (meResponse.status === 401) { if (isMounted.current) router.push('/login'); return; }
+        if (!meResponse.ok) { if (isMounted.current) setState('error'); return; }
+        
+        const user = await meResponse.json() as User;
+        const membership = user.memberships[0];
+        if (!membership) { if (isMounted.current) setState('error'); return; }
+        
+        if (isMounted.current) setOrganizationId(membership.organization.id);
+        
+        if (membership.branchId) {
+          if (isMounted.current) {
+            setBranchId(membership.branchId);
+            setBranches([{ id: membership.branchId, name: 'Assigned branch', code: null }]);
+          }
+          return;
+        }
+        
+        const response = await fetchWithAuth('/api/organizations/current/branches?page=1&limit=100', { headers: { 'x-organization-id': membership.organization.id } });
+        if (response.status === 403) { if (isMounted.current) setState('forbidden'); return; }
+        if (!response.ok) { if (isMounted.current) setState('error'); return; }
+        
+        const branchList = await response.json();
+        if (isMounted.current) {
+          setBranches(branchList.data || []);
+          setBranchId(branchList.data?.[0]?.id ?? '');
+        }
+      } catch {
+        if (isMounted.current) setState('error');
       }
-      const response = await fetchWithAuth('/api/organizations/current/branches?page=1&limit=100', { headers: { 'x-organization-id': membership.organization.id } });
-      if (response.status === 403) { setState('forbidden'); return; }
-      if (!response.ok) { setState('error'); return; }
-      const branchList = await response.json() as { data: Branch[] };
-      setBranches(branchList.data);
-      setBranchId(branchList.data[0]?.id ?? '');
     }
-    void loadContext().catch(() => setState('error'));
-  }, [router]);
+    void loadContext();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Run once
 
   useEffect(() => {
     if (!organizationId || !branchId) return;
     async function loadPatients() {
-      setState('loading');
-      const params = new URLSearchParams({ page: String(page), limit: '20' });
-      if (search.trim()) params.set('search', search.trim());
-      const response = await fetchWithAuth(`/api/branches/${branchId}/patients?${params.toString()}`, { headers: { 'x-organization-id': organizationId } });
-      if (response.status === 401) { router.push('/login'); return; }
-      if (response.status === 403) { setState('forbidden'); return; }
-      if (!response.ok) { setState('error'); return; }
-      setPatients(await response.json() as PatientList);
-      setState('ready');
+      if (isMounted.current) setState('loading');
+      try {
+        const params = new URLSearchParams({ page: String(page), limit: '20' });
+        if (search.trim()) params.set('search', search.trim());
+        
+        const response = await fetchWithAuth(`/api/branches/${branchId}/patients?${params.toString()}`, { headers: { 'x-organization-id': organizationId } });
+        if (response.status === 401) { if (isMounted.current) router.push('/login'); return; }
+        if (response.status === 403) { if (isMounted.current) setState('forbidden'); return; }
+        if (!response.ok) { if (isMounted.current) setState('error'); return; }
+        
+        const data = await response.json();
+        if (isMounted.current) {
+          setPatients(data);
+          setState('ready');
+        }
+      } catch {
+        if (isMounted.current) setState('error');
+      }
     }
-    void loadPatients().catch(() => setState('error'));
-  }, [branchId, organizationId, page, router, search]);
+    void loadPatients();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [branchId, organizationId, page, search]); // removed router
 
   function choosePatient(patient: Patient) {
     setSelected(patient);
@@ -76,50 +115,231 @@ export default function PatientsPage() {
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    const url = selected ? `/api/branches/${branchId}/patients/${selected.id}` : `/api/branches/${branchId}/patients`;
-    const response = await fetchWithAuth(url, { method: selected ? 'PATCH' : 'POST', headers: { 'x-organization-id': organizationId }, body: JSON.stringify(form) });
-    if (response.status === 401) { router.push('/login'); return; }
-    if (response.status === 403) { setState('forbidden'); return; }
-    if (response.status === 409) { setMessage('A patient with these details could not be saved.'); return; }
-    if (!response.ok) { setMessage('Unable to save patient. Check the form and try again.'); return; }
-    const patient = await response.json() as Patient;
-    setSelected(patient);
-    setFormOpen(false);
-    setMessage(selected ? 'Patient updated.' : 'Patient registered.');
-    setPage(1);
-    setSearch('');
-    const refresh = await fetchWithAuth(`/api/branches/${branchId}/patients?page=1&limit=20`, { headers: { 'x-organization-id': organizationId } });
-    if (refresh.ok) setPatients(await refresh.json() as PatientList);
+    setIsSubmitting(true);
+    try {
+      const url = selected ? `/api/branches/${branchId}/patients/${selected.id}` : `/api/branches/${branchId}/patients`;
+      const response = await fetchWithAuth(url, { method: selected ? 'PATCH' : 'POST', headers: { 'x-organization-id': organizationId }, body: JSON.stringify(form) });
+      
+      if (response.status === 401) { router.push('/login'); return; }
+      if (response.status === 403) { setState('forbidden'); return; }
+      if (response.status === 409) { setMessage('A patient with these details could not be saved.'); return; }
+      if (!response.ok) { setMessage('Unable to save patient. Check the form and try again.'); return; }
+      
+      const patient = await response.json();
+      setSelected(patient);
+      setFormOpen(false);
+      setMessage(selected ? 'Patient updated successfully.' : 'Patient registered successfully.');
+      setPage(1);
+      setSearch('');
+      
+      const refresh = await fetchWithAuth(`/api/branches/${branchId}/patients?page=1&limit=20`, { headers: { 'x-organization-id': organizationId } });
+      if (refresh.ok) setPatients(await refresh.json());
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   async function changeStatus(status: 'activate' | 'deactivate') {
     if (!selected) return;
-    const response = await fetchWithAuth(`/api/branches/${branchId}/patients/${selected.id}/${status}`, { method: 'POST', headers: { 'x-organization-id': organizationId } });
-    if (response.status === 403) { setState('forbidden'); return; }
-    if (!response.ok) { setMessage('Unable to change patient status.'); return; }
-    const patient = await response.json() as Patient;
-    setSelected(patient);
-    setPatients((current) => current ? { ...current, data: current.data.map((item) => item.id === patient.id ? patient : item) } : current);
-    setMessage(`Patient ${status}d.`);
+    try {
+      const response = await fetchWithAuth(`/api/branches/${branchId}/patients/${selected.id}/${status}`, { method: 'POST', headers: { 'x-organization-id': organizationId } });
+      if (response.status === 403) { setState('forbidden'); return; }
+      if (!response.ok) { setMessage('Unable to change patient status.'); return; }
+      
+      const patient = await response.json();
+      setSelected(patient);
+      setPatients((current) => current ? { ...current, data: current.data.map((item) => item.id === patient.id ? patient : item) } : current);
+      setMessage(`Patient ${status}d successfully.`);
+    } catch {
+      // ignore
+    }
   }
 
-  if (state === 'loading' && !patients) return <main className="page-shell"><p>Loading patients...</p></main>;
-  if (state === 'forbidden') return <main className="page-shell"><p className="error-text">You do not have permission to manage patients in this branch.</p></main>;
-  if (state === 'error') return <main className="page-shell"><p className="error-text">Unable to load patient management.</p></main>;
+  if (state === 'forbidden') {
+    return (
+      <div className="max-w-3xl mx-auto mt-8">
+        <ErrorState title="Access Denied" message="You do not have permission to manage patients in this branch." />
+      </div>
+    );
+  }
+
+  if (state === 'error') {
+    return (
+      <div className="max-w-3xl mx-auto mt-8">
+        <ErrorState title="Failed to load" message="Unable to load patient management." onRetry={() => window.location.reload()} />
+      </div>
+    );
+  }
 
   return (
-    <main className="page-shell">
-      <nav className="top-nav"><a href="/dashboard">Dashboard</a><a href="/organization">Organization</a></nav>
-      <section className="content-panel">
-        <div className="section-heading"><div><p className="eyebrow">Patient foundation</p><h1>Patients</h1><p className="muted">Identity records for registration and future queue workflows.</p></div><button type="button" onClick={() => { setSelected(null); setForm(emptyForm); setFormOpen(true); setMessage(''); }}>Register patient</button></div>
-        {branches.length > 1 && <label>Branch<select value={branchId} onChange={(event) => { setBranchId(event.target.value); setPage(1); setSelected(null); }}><option value="">Select branch</option>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}{branch.code ? ` (${branch.code})` : ''}</option>)}</select></label>}
-        <div className="search-row"><label className="search-label">Search patients<input value={search} maxLength={100} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder="Name, phone, or patient number" /></label></div>
-        {message && <p className="success-text" role="status">{message}</p>}
-        {!patients?.data.length ? <p className="muted empty-state">No patients found.</p> : <div className="patient-list">{patients.data.map((patient) => <button type="button" className={`patient-row ${selected?.id === patient.id ? 'selected' : ''}`} key={patient.id} onClick={() => choosePatient(patient)}><span><strong>{patient.firstName} {patient.lastName}</strong><small>{patient.patientNumber} · {patient.phone ?? 'No phone'}</small></span><span className={`status status-${patient.status.toLowerCase()}`}>{patient.status}</span></button>)}</div>}
-        {patients && patients.meta.totalPages > 1 && <div className="pagination"><button type="button" disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous</button><span>Page {page} of {patients.meta.totalPages}</span><button type="button" disabled={page >= patients.meta.totalPages} onClick={() => setPage(page + 1)}>Next</button></div>}
-      </section>
-      {formOpen && <section className="content-panel patient-form-panel"><p className="eyebrow">{selected ? 'Edit patient' : 'New registration'}</p><h2>{selected ? selected.patientNumber : 'Register patient'}</h2><form onSubmit={submit} className="form-stack"><label>First name<input required value={form.firstName} onChange={(event) => setForm({ ...form, firstName: event.target.value })} /></label><label>Last name<input required value={form.lastName} onChange={(event) => setForm({ ...form, lastName: event.target.value })} /></label><label>Phone<input value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} /></label><label>Email<input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /></label><div className="row-actions"><button type="submit">Save patient</button><button type="button" className="secondary-button" onClick={() => setFormOpen(false)}>Cancel</button></div></form></section>}
-      {selected && !formOpen && <section className="content-panel patient-detail"><p className="eyebrow">Patient details</p><h2>{selected.firstName} {selected.lastName}</h2><dl><dt>Patient number</dt><dd>{selected.patientNumber}</dd><dt>Phone</dt><dd>{selected.phone ?? 'Not provided'}</dd><dt>Email</dt><dd>{selected.email ?? 'Not provided'}</dd><dt>Status</dt><dd>{selected.status}</dd></dl><div className="row-actions"><button type="button" onClick={() => setFormOpen(true)}>Edit</button>{selected.status === 'ACTIVE' ? <button type="button" className="secondary-button" onClick={() => void changeStatus('deactivate')}>Deactivate</button> : <button type="button" onClick={() => void changeStatus('activate')}>Activate</button>}</div></section>}
-    </main>
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">Patients</h1>
+          <p className="text-sm text-slate-500 mt-1">Identity records for registration and queue workflows.</p>
+        </div>
+        <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+          {branches.length > 1 && (
+            <Select value={branchId} onChange={(e) => { setBranchId(e.target.value); setPage(1); setSelected(null); }}>
+              <option value="">Select branch</option>
+              {branches.map(b => <option key={b.id} value={b.id}>{b.name}{b.code ? ` (${b.code})` : ''}</option>)}
+            </Select>
+          )}
+          <Button onClick={() => { setSelected(null); setForm(emptyForm); setFormOpen(true); setMessage(''); }}>
+            Register Patient
+          </Button>
+        </div>
+      </div>
+
+      {message && (
+        <div className="p-4 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 text-sm font-medium">
+          {message}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 space-y-6">
+          <Card>
+            <div className="p-4 border-b border-slate-100 bg-slate-50 rounded-t-xl">
+              <Input
+                placeholder="Search by name, phone, or ID..."
+                value={search}
+                onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+              />
+            </div>
+
+            {state === 'loading' && !patients ? (
+              <div className="p-6">
+                <TableSkeleton rows={5} />
+              </div>
+            ) : !patients?.data.length ? (
+              <div className="p-12">
+                <EmptyState 
+                  title="No patients found" 
+                  description="There are no patients matching your current search."
+                  actionLabel="Add new patient"
+                  onAction={() => { setSelected(null); setForm(emptyForm); setFormOpen(true); }}
+                />
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {patients.data.map((patient) => (
+                  <div
+                    key={patient.id}
+                    className={`flex items-center justify-between p-4 cursor-pointer transition-colors hover:bg-slate-50 ${selected?.id === patient.id ? 'bg-teal-50/50 hover:bg-teal-50' : ''}`}
+                    onClick={() => choosePatient(patient)}
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 font-bold text-sm">
+                        {patient.firstName[0]}{patient.lastName[0]}
+                      </div>
+                      <div>
+                        <div className="font-semibold text-slate-900">{patient.firstName} {patient.lastName}</div>
+                        <div className="text-sm text-slate-500">{patient.patientNumber} {patient.phone ? `· ${patient.phone}` : ''}</div>
+                      </div>
+                    </div>
+                    <div>
+                      <Badge variant={patient.status === 'ACTIVE' ? 'success' : 'neutral'}>
+                        {patient.status}
+                      </Badge>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {patients && patients.meta.totalPages > 1 && (
+              <div className="p-4 border-t border-slate-100 flex items-center justify-between bg-slate-50 rounded-b-xl">
+                <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
+                  Previous
+                </Button>
+                <span className="text-sm text-slate-600 font-medium">Page {page} of {patients.meta.totalPages}</span>
+                <Button variant="outline" size="sm" disabled={page >= patients.meta.totalPages} onClick={() => setPage(page + 1)}>
+                  Next
+                </Button>
+              </div>
+            )}
+          </Card>
+        </div>
+
+        <div className="lg:col-span-1 space-y-6">
+          {formOpen && (
+            <Card>
+              <CardHeader>
+                <CardTitle>{selected ? 'Edit Patient' : 'New Registration'}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <form onSubmit={(e) => void submit(e)} className="space-y-4">
+                  <Input required label="First Name" value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} />
+                  <Input required label="Last Name" value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} />
+                  <Input label="Phone (optional)" type="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+                  <Input label="Email (optional)" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+                  
+                  <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t border-slate-100">
+                    <Button type="submit" className="w-full" isLoading={isSubmitting}>
+                      Save
+                    </Button>
+                    <Button type="button" variant="outline" className="w-full" onClick={() => setFormOpen(false)}>
+                      Cancel
+                    </Button>
+                  </div>
+                </form>
+              </CardContent>
+            </Card>
+          )}
+
+          {selected && !formOpen && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Patient Details</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center gap-4 border-b border-slate-100 pb-4">
+                  <div className="w-12 h-12 rounded-full bg-teal-100 flex items-center justify-center text-teal-700 font-bold text-lg">
+                    {selected.firstName[0]}{selected.lastName[0]}
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-900 leading-none">{selected.firstName} {selected.lastName}</h3>
+                    <p className="text-sm text-slate-500 mt-1">{selected.patientNumber}</p>
+                  </div>
+                </div>
+                
+                <div className="space-y-3 py-2">
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-slate-500 font-medium">Phone</span>
+                    <span className="text-slate-900 font-semibold">{selected.phone || '—'}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-slate-500 font-medium">Email</span>
+                    <span className="text-slate-900 font-semibold">{selected.email || '—'}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-slate-500 font-medium">Status</span>
+                    <Badge variant={selected.status === 'ACTIVE' ? 'success' : 'neutral'}>
+                      {selected.status}
+                    </Badge>
+                  </div>
+                </div>
+                
+                <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t border-slate-100">
+                  <Button className="w-full" variant="secondary" onClick={() => setFormOpen(true)}>
+                    Edit Profile
+                  </Button>
+                  {selected.status === 'ACTIVE' ? (
+                    <Button className="w-full" variant="outline" onClick={() => void changeStatus('deactivate')}>
+                      Deactivate
+                    </Button>
+                  ) : (
+                    <Button className="w-full" variant="outline" onClick={() => void changeStatus('activate')}>
+                      Activate
+                    </Button>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
