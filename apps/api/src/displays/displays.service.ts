@@ -1,5 +1,5 @@
 import { ConflictException, ForbiddenException, HttpException, HttpStatus, Injectable, MessageEvent, NotFoundException } from '@nestjs/common';
-import { Prisma, Role, TokenStatus } from '@prisma/client';
+import { Prisma, Role, TokenStatus, CounterStatus } from '@prisma/client';
 import { randomBytes } from 'crypto';
 import { isUUID } from 'class-validator';
 import { Observable } from 'rxjs';
@@ -141,7 +141,50 @@ export class DisplaysService {
     const recent = recentRows.filter((token) => token.id !== currentRowsId(currentTokens)).slice(0, 5).map((token) => this.toPublicToken(token));
     const waitingTotal = await this.prisma.token.count({ where: { status: TokenStatus.WAITING, queueEntry: { status: 'WAITING', patient: { branchId: display.branchId }, service: { department: { branchId: display.branchId } } } } });
 
-    return { display: { name: display.name }, current, recent, waitingSummary: { total: waitingTotal }, updatedAt: new Date().toISOString() };
+    const branchCounters = await this.prisma.counter.findMany({
+      where: { branchId: display.branchId, status: CounterStatus.ACTIVE },
+      select: { id: true, name: true, code: true },
+      orderBy: { name: 'asc' },
+    });
+    
+    const activeCountersTokens = await this.prisma.token.findMany({
+      where: { status: { in: [TokenStatus.CALLED, TokenStatus.SERVING] }, counterId: { not: null }, queueEntry: { patient: { branchId: display.branchId }, service: { department: { branchId: display.branchId } } } },
+      orderBy: [{ calledAt: 'desc' }, { id: 'desc' }],
+      select: this.publicTokenSelect,
+    });
+    
+    const waitingTokens = await this.prisma.token.findMany({
+      where: { status: TokenStatus.WAITING, counterId: null, queueEntry: { status: 'WAITING', patient: { branchId: display.branchId }, service: { department: { branchId: display.branchId } } } },
+      orderBy: [{ queueEntry: { priorityWeight: 'desc' } }, { businessDate: 'asc' }, { sequenceNumber: 'asc' }, { id: 'asc' }],
+      take: branchCounters.length,
+      select: this.publicTokenSelect,
+    });
+
+    const sortedForNext = [...branchCounters].sort((a, b) => {
+      const aIdle = !activeCountersTokens.some(t => t.counter?.name === a.name && t.counter?.code === a.code);
+      const bIdle = !activeCountersTokens.some(t => t.counter?.name === b.name && t.counter?.code === b.code);
+      if (aIdle && !bIdle) return -1;
+      if (!aIdle && bIdle) return 1;
+      return (a.name ?? a.code ?? '').localeCompare(b.name ?? b.code ?? '');
+    });
+
+    const nextTokenMap = new Map<string, PublicToken>();
+    sortedForNext.forEach((c, i) => {
+      if (waitingTokens[i]) {
+        nextTokenMap.set(c.id, this.toPublicToken(waitingTokens[i]));
+      }
+    });
+
+    const counters = branchCounters.map((counter) => {
+      const nowToken = activeCountersTokens.find((t) => t.counter?.name === counter.name && t.counter?.code === counter.code);
+      return {
+        counter: counter.name ?? counter.code ?? 'Counter',
+        now: nowToken ? this.toPublicToken(nowToken) : null,
+        next: nextTokenMap.get(counter.id) || null,
+      };
+    });
+
+    return { display: { name: display.name }, current, recent, waitingSummary: { total: waitingTotal }, counters, updatedAt: new Date().toISOString() };
   }
 
   private async authorizeBranch(tenant: Tenant, branchId: string) {
@@ -182,7 +225,7 @@ export class DisplaysService {
   }
 
   private toPublicToken(token: PublicTokenRow): PublicToken {
-    return { tokenLabel: token.displayNumber, counter: token.counter?.name ?? token.counter?.code ?? 'Counter', status: token.status, service: token.queueEntry.service.name, department: token.queueEntry.service.department.name, recalled: token.recalledAt !== null, recallCount: token.recallCount, calledAt: token.calledAt?.toISOString() ?? null };
+    return { tokenLabel: token.displayNumber, counter: token.counter?.name ?? token.counter?.code ?? 'Counter', status: token.status, recalled: token.recalledAt !== null, recallCount: token.recallCount, calledAt: token.calledAt?.toISOString() ?? null };
   }
 
   private readonly publicTokenSelect = {
@@ -193,7 +236,6 @@ export class DisplaysService {
     recalledAt: true,
     recallCount: true,
     counter: { select: { name: true, code: true } },
-    queueEntry: { select: { service: { select: { name: true, department: { select: { name: true } } } } } },
   } satisfies Prisma.TokenSelect;
 
   private isUniqueError(error: unknown) {
@@ -217,7 +259,6 @@ type PublicTokenRow = {
   recalledAt: Date | null;
   recallCount: number;
   counter: { name: string; code: string } | null;
-  queueEntry: { service: { name: string; department: { name: string } } };
 };
 
 function currentRowsId(current: Array<{ id: string }>) {

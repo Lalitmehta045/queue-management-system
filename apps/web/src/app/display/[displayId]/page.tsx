@@ -1,7 +1,7 @@
 'use client';
 
 import { use, useEffect, useRef, useState } from 'react';
-import type { PublicToken, DisplaySnapshot, DisplayPageState } from '../../../types/queue';
+import type { DisplaySnapshot, DisplayPageState } from '../../../types/queue';
 import {
   AnnouncementSpeaker,
   loadAnnouncementSettings,
@@ -20,9 +20,8 @@ export default function PublicDisplayPage({ params }: { params: Promise<{ displa
   const [state, setState] = useState<DisplayPageState>('loading');
   const [lastToken, setLastToken] = useState('');
   const [announcementSettings, setAnnouncementSettings] = useState<AnnouncementSettings>(() => loadAnnouncementSettings());
-  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
-  const [showSettings, setShowSettings] = useState(false);
   const [voiceUnavailable, setVoiceUnavailable] = useState(false);
+  const [currentTime, setCurrentTime] = useState<Date | null>(null);
   
   const snapshotRef = useRef<DisplaySnapshot | null>(null);
   const speakerRef = useRef<AnnouncementSpeaker | null>(null);
@@ -30,8 +29,12 @@ export default function PublicDisplayPage({ params }: { params: Promise<{ displa
   
   const supportsSpeech = speechSupported();
 
-  // Respect prefers-reduced-motion: announcements stay disabled by default for
-  // these users unless they explicitly enable them.
+  useEffect(() => {
+    setCurrentTime(new Date());
+    const interval = setInterval(() => setCurrentTime(new Date()), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
   useEffect(() => {
     if (
       prefersReducedMotion() &&
@@ -52,14 +55,10 @@ export default function PublicDisplayPage({ params }: { params: Promise<{ displa
       return;
     }
     const synth = window.speechSynthesis;
-    const updateVoices = () => setVoices(synth.getVoices());
-    updateVoices();
-    synth.addEventListener('voiceschanged', updateVoices);
     if (!speakerRef.current) {
       speakerRef.current = new AnnouncementSpeaker(synth, () => settingsRef.current);
     }
     return () => {
-      synth.removeEventListener('voiceschanged', updateVoices);
       speakerRef.current?.cancel();
       speakerRef.current = null;
     };
@@ -77,7 +76,7 @@ export default function PublicDisplayPage({ params }: { params: Promise<{ displa
       setSnapshot((previous) => {
         if (previous?.current?.tokenLabel !== next.current?.tokenLabel || previous?.current?.recallCount !== next.current?.recallCount) {
           setLastToken(next.current?.tokenLabel ?? '');
-          window.setTimeout(() => setLastToken(''), 700);
+          window.setTimeout(() => { if (!cancelled) setLastToken(''); }, 3000);
         }
         snapshotRef.current = next;
         return next;
@@ -138,123 +137,223 @@ export default function PublicDisplayPage({ params }: { params: Promise<{ displa
     return () => { cancelled = true; };
   }, [displayId, snapshot, state]);
 
-  function updateSettings(patch: Partial<AnnouncementSettings>) {
-    setAnnouncementSettings((current) => {
-      const next = { ...current, ...patch };
-      saveAnnouncementSettings(next);
-      return next;
-    });
+  if (state === 'loading' || !snapshot) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col font-sans p-6 overflow-hidden">
+         <div className="animate-pulse h-20 bg-white rounded-xl mb-6 border border-slate-100 flex items-center px-8">
+            <div className="w-12 h-12 bg-slate-200 rounded mr-4"></div>
+            <div className="h-6 w-64 bg-slate-200 rounded"></div>
+            <div className="ml-auto h-6 w-48 bg-slate-200 rounded"></div>
+         </div>
+         <div className="animate-pulse flex-1 bg-white rounded-xl mb-6 border border-slate-100 flex items-center justify-center">
+            <div className="h-32 w-64 bg-slate-200 rounded-lg"></div>
+         </div>
+         <div className="animate-pulse h-64 bg-white rounded-xl border border-slate-100 flex gap-4 p-6">
+            <div className="flex-1 bg-slate-100 rounded-lg"></div>
+            <div className="flex-1 bg-slate-100 rounded-lg"></div>
+            <div className="flex-1 bg-slate-100 rounded-lg"></div>
+            <div className="flex-1 bg-slate-100 rounded-lg"></div>
+         </div>
+      </div>
+    );
   }
 
-  function testAnnouncement() {
-    if (!speakerRef.current) return;
-    speakerRef.current.enqueue(`test:${Date.now()}`, 'This is a test announcement.');
+  if (state === 'error') {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center font-sans">
+        <p className="text-slate-500 text-2xl font-medium">Display unavailable</p>
+      </div>
+    );
   }
 
-  if (state === 'loading') return <main className="public-display"><p className="display-status">Connecting...</p></main>;
-  if (state === 'error') return <main className="public-display"><p className="display-status">Display unavailable</p></main>;
-  if (!snapshot) return <main className="public-display"><p className="display-status">Connecting...</p></main>;
+  const { display, current, counters } = snapshot;
 
-  const activeCounters = new Map<string, PublicToken>();
-  if (snapshot.current) {
-    activeCounters.set(snapshot.current.counter, snapshot.current);
-  }
-  for (const token of snapshot.recent) {
-    if (!activeCounters.has(token.counter)) {
-      activeCounters.set(token.counter, token);
+  const formattedDate = currentTime?.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) ?? '';
+  const formattedTime = currentTime?.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }) ?? '';
+
+  const enableAudio = () => {
+    if (!announcementSettings.enabled && !voiceUnavailable) {
+      setAnnouncementSettings(s => ({ ...s, enabled: true }));
+      saveAnnouncementSettings({ ...announcementSettings, enabled: true });
     }
-  }
-  const countersList = Array.from(activeCounters.values());
+  };
 
   return (
-    <main className="public-display">
-      <header className="display-header">
-        <div>
-          <p className="display-kicker">SMART QUEUE</p>
-          <h1>{snapshot.display.name}</h1>
-          {state === 'reconnecting' && <p className="display-status">Reconnecting...</p>}
+    <div className="min-h-screen bg-white flex flex-col font-sans text-slate-900 overflow-hidden" onClick={enableAudio}>
+      {/* HEADER */}
+      <header className="flex justify-between items-center px-8 py-5 border-b-4 border-teal-700 bg-white shrink-0 shadow-sm z-10">
+        <div className="flex items-center gap-4">
+          <div className="w-14 h-14 bg-teal-50 flex flex-col justify-end items-center rounded overflow-hidden pb-1 border-b-4 border-teal-200">
+             <div className="flex space-x-1.5 mb-1.5">
+               <div className="w-2.5 h-2.5 rounded-full bg-teal-800"></div>
+               <div className="w-2.5 h-2.5 rounded-full bg-teal-800"></div>
+               <div className="w-2.5 h-2.5 rounded-full bg-teal-800"></div>
+             </div>
+             <div className="w-10 h-2.5 bg-teal-700/80 rounded-t-sm"></div>
+          </div>
+          <div className="flex flex-col">
+            <h1 className="text-[1.7rem] font-black text-[#041E42] tracking-tight leading-none uppercase">
+              {display.name || 'SMARTQUEUE'}
+            </h1>
+            <p className="text-[0.75rem] font-bold text-teal-600 tracking-[0.2em] mt-1 uppercase">
+              Queue Management System
+            </p>
+          </div>
         </div>
-        <div className="display-controls">
-          {voiceUnavailable ? (
-            <span className="display-control-note" title="Speech synthesis is not available in this browser">🔇 Voice unavailable</span>
-          ) : (
-            <>
-              <button
-                type="button"
-                className={`display-control-btn ${announcementSettings.enabled ? 'is-on' : ''}`}
-                onClick={() => updateSettings({ enabled: !announcementSettings.enabled })}
-                title={announcementSettings.enabled ? 'Mute announcements' : 'Enable announcements'}
-                aria-pressed={announcementSettings.enabled}
-              >
-                {announcementSettings.enabled ? '🔊 Announcements ON' : '🔇 Enable Announcements'}
-              </button>
-              <button type="button" className="display-control-btn" onClick={() => setShowSettings((current) => !current)} title="Announcement settings" aria-expanded={showSettings}>⚙️</button>
-            </>
-          )}
-          {showSettings && !voiceUnavailable && (
-            <div className="announcement-popover">
-              <p className="display-kicker">ANNOUNCEMENT SETTINGS</p>
-              <label>Voice<select value={announcementSettings.voiceURI} onChange={(event) => updateSettings({ voiceURI: event.target.value })}>
-                <option value="">Default voice</option>
-                {voices.map((voice) => <option key={voice.voiceURI} value={voice.voiceURI}>{voice.lang} · {voice.name}</option>)}
-              </select></label>
-              <label>Speech rate: {announcementSettings.rate.toFixed(1)}x<input type="range" min={0.5} max={2} step={0.1} value={announcementSettings.rate} onChange={(event) => updateSettings({ rate: Number(event.target.value) })} /></label>
-              <label>Volume: {Math.round(announcementSettings.volume * 100)}%<input type="range" min={0} max={1} step={0.05} value={announcementSettings.volume} onChange={(event) => updateSettings({ volume: Number(event.target.value) })} /></label>
-              <button type="button" className="display-control-btn" onClick={testAnnouncement}>Test announcement</button>
-              <p className="display-control-hint">Announcements start after the first interaction with this screen so the browser permits audio.</p>
-            </div>
-          )}
+        <div className="flex items-center gap-6 text-xl font-bold text-[#041E42]">
+          <div className="flex items-center gap-3">
+            <svg className="w-7 h-7 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+            <span suppressHydrationWarning>{formattedDate}</span>
+          </div>
+          <div className="h-8 w-px bg-slate-300"></div>
+          <div className="flex items-center gap-3 w-36">
+            <svg className="w-7 h-7 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            <span suppressHydrationWarning>{formattedTime}</span>
+          </div>
         </div>
       </header>
 
-      {countersList.length > 0 && (
-        <div className="dsp-counter-grid">
-          {countersList.map(token => (
-            <div key={token.counter} className={`dsp-counter-cell ${token.tokenLabel === snapshot.current?.tokenLabel ? 'dsp-counter-active' : ''}`}>
-              <div className="dsp-counter-label">{token.counter}</div>
-              <div className="dsp-counter-token">{token.tokenLabel}</div>
+      {/* NOW SERVING AREA */}
+      <section className="flex-1 flex px-10 py-6 min-h-[300px] border-b border-slate-100">
+        <div className="w-1/4 flex flex-col items-center justify-center text-center border-r border-slate-100 pr-8">
+          <div className={`p-6 rounded-full mb-4 ${announcementSettings.enabled ? 'text-teal-700' : 'text-slate-400'}`}>
+            {announcementSettings.enabled ? (
+              <svg className="w-24 h-24 drop-shadow-sm" fill="currentColor" viewBox="0 0 24 24"><path d="M13 5v14l-5-4H3V9h5l5-4zm2.5 7c0-1.7-.9-3.2-2.3-4l-.7 1.4c1 1.6.3 3.6-1.3 4.6l.7 1.4c1.8-1 3-2.9 3-3.4zM18 12c0-3.3-1.8-6.2-4.5-7.7l-.8 1.4c2.1 1.2 3.5 3.5 3.5 6s-1.4 4.8-3.5 6l.8 1.4C16.2 17.6 18 14.8 18 12z"/></svg>
+            ) : (
+              <svg className="w-24 h-24 drop-shadow-sm" fill="currentColor" viewBox="0 0 24 24"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>
+            )}
+          </div>
+          <h3 className="font-bold text-[#041E42] text-xl">Audio Announcement</h3>
+          <p className={`font-bold text-lg mt-1 ${announcementSettings.enabled ? 'text-teal-600' : 'text-slate-400'}`}>
+            {voiceUnavailable ? 'Unavailable' : announcementSettings.enabled ? 'Active' : 'Muted'}
+          </p>
+        </div>
+
+        <div className="w-1/2 flex flex-col items-center justify-center px-10 relative">
+          <h2 className="text-3xl font-extrabold text-teal-700 uppercase tracking-widest mb-2 z-10">Now Serving</h2>
+          <div className="flex items-center justify-center my-4 h-[180px]">
+            <span className={`text-[12rem] leading-none font-black text-[#041E42] tracking-tighter transition-all duration-300 ${lastToken === current?.tokenLabel ? 'scale-110 text-teal-600' : ''}`}>
+              {current?.tokenLabel || '—'}
+            </span>
+          </div>
+          {current?.counter && (
+            <div className="bg-teal-700 text-white text-3xl font-bold uppercase tracking-widest px-10 py-3 rounded-lg shadow-sm z-10">
+              {current.counter}
+            </div>
+          )}
+        </div>
+
+        <div className="w-1/4 flex flex-col items-center justify-center border-l border-slate-100 pl-8">
+           <svg className="w-full max-w-[220px] text-teal-800 opacity-90 drop-shadow-sm" viewBox="0 0 100 80" fill="currentColor">
+              <circle cx="25" cy="30" r="7" />
+              <circle cx="50" cy="25" r="7" />
+              <circle cx="75" cy="30" r="7" />
+              <path d="M15 50 Q25 38 35 50 Z" />
+              <path d="M40 45 Q50 33 60 45 Z" />
+              <path d="M65 50 Q75 38 85 50 Z" />
+              <rect x="5" y="50" width="90" height="12" rx="2" className="text-teal-200" />
+              <rect x="0" y="62" width="100" height="4" rx="1" />
+              
+              <path d="M85 70 Q90 60 88 50 Q92 52 95 65 Z" />
+              <path d="M85 70 Q80 60 82 50 Q78 52 75 65 Z" />
+              <rect x="83" y="66" width="4" height="14" rx="1" className="text-teal-900" />
+           </svg>
+        </div>
+      </section>
+
+      {/* COUNTER GRID */}
+      <section className="bg-slate-50 shrink-0 border-b-4 border-slate-200">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 w-full h-full">
+          {counters.map((c, idx) => (
+            <div key={idx} className={`flex flex-col text-center bg-white ${idx < counters.length - 1 ? 'border-r-2 border-slate-200' : ''}`}>
+              <div className="bg-teal-700 text-white font-bold text-xl py-3 uppercase tracking-wider shadow-sm">
+                {c.counter}
+              </div>
+              <div className="py-8 flex flex-col justify-center border-b-2 border-slate-100 min-h-[160px]">
+                <p className="text-sm font-bold text-[#041E42] tracking-widest uppercase mb-2">Now Serving</p>
+                <p className="text-7xl font-black text-[#041E42]">
+                  {c.now?.tokenLabel || '—'}
+                </p>
+              </div>
+              <div className="py-6 bg-slate-50 flex flex-col justify-center min-h-[120px]">
+                <p className="text-sm font-bold text-slate-500 tracking-widest uppercase mb-1">Next</p>
+                <p className="text-5xl font-extrabold text-teal-700">
+                  {c.next?.tokenLabel || '—'}
+                </p>
+              </div>
             </div>
           ))}
         </div>
-      )}
-
-      <section className={`now-serving ${lastToken ? 'token-changed' : ''}`} aria-live="polite">
-        <p className="display-kicker">NOW SERVING</p>
-        {snapshot.current ? (
-          <>
-            <strong>{snapshot.current.tokenLabel}</strong>
-            <span>{snapshot.current.counter}</span>
-            <small>{snapshot.current.status}{snapshot.current.recalled ? ' - RECALLED' : ''}</small>
-          </>
-        ) : (
-          <p className="no-current">No tokens currently being served</p>
-        )}
       </section>
 
-      <section className="display-section">
-        <div className="display-section-heading">
-          <h2>RECENTLY CALLED</h2>
-          <span>{snapshot.recent.length}</span>
+      {/* FOOTER & LEGEND */}
+      <footer className="shrink-0 bg-slate-100 flex flex-col">
+        <div className="bg-[#041E42] text-white py-4 px-6 flex items-center justify-center gap-3 shadow-md">
+          <svg className="w-8 h-8 opacity-90" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+          <span className="text-3xl font-extrabold tracking-widest uppercase mt-0.5">
+            Thank you. Please wait for your turn.
+          </span>
         </div>
-        {snapshot.recent.length > 0 ? (
-          <div className="recent-list">
-            {snapshot.recent.map((token, idx) => (
-              <div className="recent-item" key={`${token.tokenLabel}-${token.counter}-${idx}`}>
-                <strong>{token.tokenLabel}</strong>
-                <span>{token.counter}</span>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="display-muted">No recent calls</p>
-        )}
-      </section>
 
-      <section className="waiting-total">
-        <p className="display-kicker">WAITING</p>
-        <strong>{snapshot.waitingSummary.total}</strong>
-        <span>TOKENS</span>
-      </section>
-    </main>
+        <div className="flex divide-x-2 divide-slate-200 px-8 py-5">
+          <div className="flex-1 flex flex-col pr-8">
+            <h4 className="text-[0.7rem] font-bold text-slate-500 uppercase tracking-widest mb-3">How It Works</h4>
+            <div className="flex items-center justify-between text-slate-600 text-sm font-semibold opacity-90">
+              <div className="flex flex-col items-center text-center gap-2 max-w-[140px]">
+                <svg className="w-8 h-8 text-teal-600" fill="currentColor" viewBox="0 0 24 24"><path d="M13 5v14l-5-4H3V9h5l5-4zm2.5 7c0-1.7-.9-3.2-2.3-4l-.7 1.4c1 1.6.3 3.6-1.3 4.6l.7 1.4c1.8-1 3-2.9 3-3.4zM18 12c0-3.3-1.8-6.2-4.5-7.7l-.8 1.4c2.1 1.2 3.5 3.5 3.5 6s-1.4 4.8-3.5 6l.8 1.4C16.2 17.6 18 14.8 18 12z"/></svg>
+                <span className="text-[0.75rem] leading-snug">When a token is called, it appears under NOW SERVING.</span>
+              </div>
+              <svg className="w-6 h-6 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+              <div className="flex flex-col items-center text-center gap-2 max-w-[140px]">
+                <svg className="w-8 h-8 text-teal-600" fill="currentColor" viewBox="0 0 24 24"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+                <span className="text-[0.75rem] leading-snug">The NEXT token in line for that counter is shown below.</span>
+              </div>
+              <svg className="w-6 h-6 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+              <div className="flex flex-col items-center text-center gap-2 max-w-[140px]">
+                <svg className="w-8 h-8 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                <span className="text-[0.75rem] leading-snug">Display updates automatically in real-time.</span>
+              </div>
+            </div>
+          </div>
+          <div className="flex-1 px-8 flex flex-col">
+            <h4 className="text-[0.7rem] font-bold text-slate-500 uppercase tracking-widest mb-3">Connection Status</h4>
+            <div className="flex items-center gap-5 mt-1">
+              <div className="flex flex-col items-center">
+                 <div className="relative flex items-center justify-center">
+                   {state === 'ready' && <div className="absolute w-12 h-12 bg-green-200 rounded-full animate-ping opacity-50"></div>}
+                   <div className={`relative flex items-center justify-center w-12 h-12 rounded-full ${state === 'ready' ? 'bg-green-100 text-green-600' : 'bg-amber-100 text-amber-600'}`}>
+                     <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.14 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0"/></svg>
+                   </div>
+                 </div>
+              </div>
+              <div className="flex flex-col justify-center">
+                <span className={`text-[1.1rem] font-black tracking-widest uppercase ${state === 'ready' ? 'text-green-600' : 'text-amber-600'}`}>
+                  ● {state === 'ready' ? 'Live' : 'Reconnecting'}
+                </span>
+                <span className="text-[0.85rem] text-[#041E42] font-bold mt-0.5">Connected</span>
+                <span className="text-[0.75rem] text-slate-500 font-medium">Receiving live updates</span>
+              </div>
+            </div>
+          </div>
+          <div className="flex-1 pl-8 flex flex-col">
+            <h4 className="text-[0.7rem] font-bold text-slate-500 uppercase tracking-widest mb-3">Legend</h4>
+            <div className="flex flex-col gap-2 mt-1">
+               <div className="flex items-center gap-3">
+                 <div className="w-3 h-3 rounded-full bg-teal-600"></div>
+                 <span className="text-[0.8rem] font-semibold text-[#041E42]">Active / Serving</span>
+               </div>
+               <div className="flex items-center gap-3">
+                 <div className="w-3 h-3 rounded-full bg-amber-500"></div>
+                 <span className="text-[0.8rem] font-semibold text-[#041E42]">Idle</span>
+               </div>
+               <div className="flex items-center gap-3">
+                 <div className="w-3 h-3 rounded-full bg-slate-400"></div>
+                 <span className="text-[0.8rem] font-semibold text-[#041E42]">No Data</span>
+               </div>
+            </div>
+          </div>
+        </div>
+      </footer>
+    </div>
   );
 }

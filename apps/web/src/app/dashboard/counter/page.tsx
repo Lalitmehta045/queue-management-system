@@ -5,12 +5,13 @@ import { useRouter } from 'next/navigation';
 import type { Counter, Token, WaitingResponse, CounterPageState } from '../../../types/queue';
 import { fetchWithAuth } from '../../../lib/auth-client';
 import { Button } from '../../../components/ui/Button';
-import { Card, CardHeader, CardTitle, CardContent } from '../../../components/ui/Card';
-import { Select } from '../../../components/ui/Select';
-import { Badge } from '../../../components/ui/Badge';
 import { Skeleton } from '../../../components/ui/Skeleton';
 import { EmptyState } from '../../../components/ui/EmptyState';
 import { ErrorState } from '../../../components/ui/ErrorState';
+
+const systemFont = {
+  fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Inter", "Segoe UI", sans-serif'
+};
 
 export default function CounterWorkspacePage() {
   const router = useRouter();
@@ -22,7 +23,9 @@ export default function CounterWorkspacePage() {
   const [waiting, setWaiting] = useState<WaitingResponse | null>(null);
   const [state, setState] = useState<CounterPageState>('loading');
   const [message, setMessage] = useState('');
+  const [messageType, setMessageType] = useState<'error' | 'success' | 'info'>('info');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submittingAction, setSubmittingAction] = useState<string | null>(null);
   
   const isReconnecting = useRef(false);
   const isMounted = useRef(true);
@@ -64,7 +67,7 @@ export default function CounterWorkspacePage() {
     }
     void loadContext();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Run once
+  }, []);
 
   useEffect(() => {
     if (!organizationId || !branchId || !counterId) return;
@@ -82,7 +85,7 @@ export default function CounterWorkspacePage() {
         if (currentResponse.status === 403 || waitingResponse.status === 403) { if (isMounted.current) setState('forbidden'); return; }
         if (!currentResponse.ok || !waitingResponse.ok) throw new Error('Unable to load counter state');
         
-        const currentData = await currentResponse.json();
+        const currentData = await currentResponse.json() as Token | null;
         const waitingData = await waitingResponse.json();
         
         if (isMounted.current && !closed) {
@@ -99,7 +102,7 @@ export default function CounterWorkspacePage() {
     if (isMounted.current) setState('loading');
     void refresh();
 
-    const source = new EventSource(`/api/branches/${branchId}/counters/${counterId}/events`);
+    const source = new EventSource(`/api/branches/${branchId}/counters/${counterId}/events?organizationId=${encodeURIComponent(organizationId)}`);
     source.onmessage = (event) => {
       const data = JSON.parse(event.data);
       if (data.eventType && !closed) void refresh();
@@ -108,7 +111,7 @@ export default function CounterWorkspacePage() {
       if (!closed) {
         isReconnecting.current = true;
         if (isMounted.current) {
-          setMessage(prev => prev); // Force re-render
+          setState(prev => prev);
         }
       }
     };
@@ -124,7 +127,7 @@ export default function CounterWorkspacePage() {
       source.close();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [branchId, counterId, organizationId]); // removed router
+  }, [branchId, counterId, organizationId]); 
 
   async function refreshState() {
     try {
@@ -134,7 +137,7 @@ export default function CounterWorkspacePage() {
         fetchWithAuth(`/api/branches/${branchId}/counters/${counterId}/waiting`, { headers }),
       ]);
       if (currentResponse.ok && waitingResponse.ok && isMounted.current) {
-        setCurrent(await currentResponse.json());
+        setCurrent(await currentResponse.json() as Token | null);
         setWaiting(await waitingResponse.json());
       }
     } catch {
@@ -142,10 +145,27 @@ export default function CounterWorkspacePage() {
     }
   }
 
+  function showMessage(text: string, type: 'error' | 'success' | 'info' = 'info') {
+    setMessage(text);
+    setMessageType(type);
+    
+    if (type !== 'error') {
+      setTimeout(() => {
+        if (isMounted.current) {
+          setMessage(prev => prev === text ? '' : prev);
+        }
+      }, 5000);
+    }
+  }
+
   async function handleAction(action: 'call-next' | 'serve' | 'recall' | 'skip' | 'complete') {
     if (isSubmitting) return;
     setIsSubmitting(true);
+    setSubmittingAction(action);
     setMessage('');
+    
+    const currentNumber = current?.displayNumber;
+
     try {
       const url = action === 'call-next'
         ? `/api/branches/${branchId}/counters/${counterId}/call-next`
@@ -154,54 +174,78 @@ export default function CounterWorkspacePage() {
       
       if (response.status === 401) { router.push('/login'); return; }
       if (response.status === 403) { setState('forbidden'); return; }
-      if (response.status === 409) { setMessage('Counter state changed. Refreshing...'); await refreshState(); return; }
-      if (!response.ok) { setMessage('Unable to complete that operation.'); return; }
       
-      setMessage('');
+      if (response.status === 409) { 
+        let errorData: { message?: string } = {};
+        try { errorData = (await response.json()) as { message?: string }; } catch { /* ignore */ }
+        
+        if (action === 'call-next' && errorData.message === 'No waiting token is available') {
+           showMessage('No customers waiting', 'info');
+        } else {
+           showMessage('Another counter action happened. Refreshing the queue…', 'error'); 
+        }
+        await refreshState(); 
+        return; 
+      }
+
+      if (response.status === 404 && action === 'call-next') {
+        showMessage('No customers waiting', 'info');
+        await refreshState();
+        return;
+      }
+      
+      if (!response.ok) { 
+        showMessage('Unable to complete that operation.', 'error'); 
+        return; 
+      }
+      
+      if (action === 'skip' && currentNumber) {
+        showMessage(`Token ${currentNumber} skipped`, 'info');
+      } else if (action === 'recall' && currentNumber) {
+        showMessage(`Token ${currentNumber} recalled`, 'info');
+      }
+      
       await refreshState();
     } catch {
-      setMessage('A network error occurred.');
+      showMessage('A network error occurred.', 'error');
     } finally {
       setIsSubmitting(false);
+      setSubmittingAction(null);
     }
   }
 
   async function handleCallSpecific(tokenId: string) {
     if (isSubmitting) return;
     setIsSubmitting(true);
+    setSubmittingAction(`call-${tokenId}`);
     setMessage('');
     try {
       const response = await fetchWithAuth(`/api/branches/${branchId}/counters/${counterId}/tokens/${tokenId}/call`, { method: 'POST', headers: { 'x-organization-id': organizationId } });
       
       if (response.status === 401) { router.push('/login'); return; }
       if (response.status === 403) { setState('forbidden'); return; }
-      if (response.status === 409) { setMessage('Counter state changed. Refreshing...'); await refreshState(); return; }
-      if (!response.ok) { setMessage('Unable to call that specific token.'); return; }
+      if (response.status === 409) { 
+        showMessage('Another counter action happened. Refreshing the queue…', 'error'); 
+        await refreshState(); 
+        return; 
+      }
+      if (!response.ok) { 
+        showMessage('Unable to call that specific token.', 'error'); 
+        return; 
+      }
       
-      setMessage('');
       await refreshState();
     } catch {
-      setMessage('A network error occurred.');
+      showMessage('A network error occurred.', 'error');
     } finally {
       setIsSubmitting(false);
-    }
-  }
-
-  function getStatusBadgeVariant(status: string) {
-    switch(status) {
-      case 'WAITING': return 'warning';
-      case 'CALLED': return 'info';
-      case 'SERVING': return 'success';
-      case 'COMPLETED': return 'neutral';
-      case 'SKIPPED': 
-      case 'CANCELLED': return 'danger';
-      default: return 'neutral';
+      setSubmittingAction(null);
     }
   }
 
   if (state === 'forbidden') {
     return (
-      <div className="max-w-3xl mx-auto mt-8">
+      <div className="max-w-3xl mx-auto mt-8 px-4" style={systemFont}>
         <ErrorState title="Access Denied" message="You do not have permission to operate this counter." />
       </div>
     );
@@ -209,7 +253,7 @@ export default function CounterWorkspacePage() {
 
   if (state === 'empty') {
     return (
-      <div className="max-w-3xl mx-auto mt-8">
+      <div className="max-w-3xl mx-auto mt-8 px-4" style={systemFont}>
         <EmptyState 
           title="No Counter Assigned" 
           description="You have not been assigned to operate any counters in this branch."
@@ -225,7 +269,7 @@ export default function CounterWorkspacePage() {
 
   if (state === 'error') {
     return (
-      <div className="max-w-3xl mx-auto mt-8">
+      <div className="max-w-3xl mx-auto mt-8 px-4" style={systemFont}>
         <ErrorState title="Failed to load" message="Unable to load counter workspace." onRetry={() => window.location.reload()} />
       </div>
     );
@@ -234,184 +278,219 @@ export default function CounterWorkspacePage() {
   const counterName = counters.find(c => c.id === counterId)?.name ?? 'Counter';
   const counterCode = counters.find(c => c.id === counterId)?.code ?? '';
 
+  const getMessageStyles = () => {
+    if (messageType === 'error') return 'bg-red-50 text-red-700 border-red-200';
+    if (messageType === 'success') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+    return 'bg-slate-50 text-slate-700 border-slate-200';
+  };
+
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">{counterName}</h1>
-          <p className="text-sm text-slate-500 mt-1 flex items-center gap-2">
-            <span className="font-semibold text-slate-700">{counterCode}</span>
-            <span>·</span>
-            <span>{waiting?.meta.total ?? 0} waiting</span>
-            {isReconnecting.current && (
-              <>
-                <span>·</span>
-                <span className="text-amber-600 font-semibold animate-pulse flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full bg-amber-500"></span> Reconnecting...
+    <div className="min-h-screen bg-slate-50/50 py-8 px-4 sm:px-6 lg:px-8" style={systemFont}>
+      <div className="max-w-5xl mx-auto space-y-6">
+        
+        {/* HEADER */}
+        {state === 'loading' ? (
+          <div className="flex justify-between items-center mb-8 pb-6 border-b border-slate-200">
+            <div className="space-y-2">
+              <Skeleton className="h-8 w-48" />
+              <Skeleton className="h-4 w-32" />
+            </div>
+            <Skeleton className="h-8 w-24 rounded-full" />
+          </div>
+        ) : (
+          <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-200 pb-6 mb-8">
+            <div>
+              <h1 className="text-3xl font-bold text-slate-900 tracking-tight">{counterName}</h1>
+              <p className="text-sm font-medium text-slate-500 mt-1">
+                {counterCode ? `Branch Code: ${counterCode}` : 'Operational Workspace'}
+              </p>
+            </div>
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-full border border-slate-200 shadow-sm">
+                <span className="relative flex h-2.5 w-2.5">
+                  {isReconnecting.current ? (
+                    <>
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
+                    </>
+                  ) : (
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                  )}
                 </span>
-              </>
-            )}
-          </p>
-        </div>
-        {counters.length > 1 && (
-          <div className="w-full md:w-64">
-            <Select value={counterId} onChange={(e) => setCounterId(e.target.value)} disabled={isSubmitting}>
-              {counters.map(c => <option key={c.id} value={c.id}>{c.name} ({c.code})</option>)}
-            </Select>
+                <span className="text-sm font-semibold text-slate-700">
+                  {isReconnecting.current ? 'Reconnecting' : 'Online'}
+                </span>
+              </div>
+            </div>
+          </header>
+        )}
+
+        {message && (
+          <div className={`px-4 py-3 rounded-lg border text-sm font-semibold shadow-sm animate-in fade-in slide-in-from-top-2 ${getMessageStyles()}`} role="alert">
+            {message}
           </div>
         )}
-      </div>
 
-      {message && (
-        <div className="p-4 rounded-lg bg-red-50 text-red-700 border border-red-200 text-sm font-medium" role="alert">
-          {message}
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Current Token Section */}
-        <div className="lg:col-span-2">
-          <Card className="h-full">
-            <CardHeader className="bg-slate-50/50">
-              <CardTitle>Current Token</CardTitle>
-            </CardHeader>
-            <CardContent className="flex flex-col items-center justify-center p-8 sm:p-12 min-h-[400px]">
-              {state === 'loading' ? (
-                <div className="w-full max-w-sm space-y-6 text-center flex flex-col items-center">
-                  <Skeleton className="h-24 w-48 rounded-xl" />
-                  <Skeleton className="h-8 w-64" />
-                  <Skeleton className="h-6 w-48" />
-                  <Skeleton className="h-10 w-full mt-4" />
+        {/* CURRENT TOKEN & PRIMARY ACTIONS */}
+        {state === 'loading' ? (
+          <div className="bg-white rounded-3xl shadow-sm border border-slate-200 p-12 flex flex-col items-center justify-center min-h-[400px]">
+            <Skeleton className="h-4 w-48 mb-8" />
+            <Skeleton className="h-32 w-64 mb-8" />
+            <Skeleton className="h-8 w-48 mb-4" />
+            <Skeleton className="h-6 w-32 mb-12" />
+            <Skeleton className="h-14 w-48 rounded-xl" />
+          </div>
+        ) : (
+          <section className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden text-center flex flex-col items-center justify-center p-8 sm:p-16 min-h-[400px]">
+            {!current ? (
+              <div className="w-full max-w-md space-y-8 animate-in fade-in zoom-in-95 duration-300">
+                <div className="space-y-3">
+                  <p className="text-xs font-bold text-slate-400 uppercase tracking-[0.25em]">READY FOR NEXT CUSTOMER</p>
+                  <h2 className="text-4xl font-bold text-slate-800 tracking-tight">No active token</h2>
                 </div>
-              ) : !current ? (
-                <div className="text-center w-full max-w-sm space-y-8">
-                  <div className="mx-auto w-24 h-24 bg-slate-100 text-slate-300 rounded-full flex items-center justify-center border-4 border-slate-50 shadow-inner">
-                    <svg className="w-12 h-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                    </svg>
-                  </div>
-                  <div>
-                    <h2 className="text-xl font-bold text-slate-800">No active token</h2>
-                    <p className="text-slate-500 text-sm mt-1">Ready to call the next customer in line.</p>
-                  </div>
+                
+                <div className="pt-8">
                   <Button
                     size="lg"
-                    className="w-full text-lg h-14 shadow-md shadow-teal-500/20"
+                    className="w-full h-16 text-lg font-bold bg-teal-600 hover:bg-teal-700 shadow-xl shadow-teal-600/20 rounded-2xl transition-all active:scale-[0.98]"
                     onClick={() => void handleAction('call-next')}
-                    disabled={isSubmitting || !waiting?.meta.total}
-                    isLoading={isSubmitting}
+                    disabled={isSubmitting}
+                    isLoading={isSubmitting && submittingAction === 'call-next'}
                   >
-                    Call Next Customer
+                    {isSubmitting && submittingAction === 'call-next' ? 'Calling next...' : 'NEXT CUSTOMER'}
                   </Button>
                 </div>
-              ) : (
-                <div className="text-center w-full">
-                  <Badge variant={getStatusBadgeVariant(current.status)} className="mb-6 px-3 py-1 text-sm shadow-sm border border-black/5">
-                    {current.status}
-                  </Badge>
-                  
-                  <div className="text-6xl sm:text-[5rem] font-black text-teal-600 tracking-tight leading-none mb-4">
-                    {current.displayNumber}
-                  </div>
-                  
-                  <div className="space-y-1 mb-8">
-                    <h2 className="text-2xl font-bold text-slate-900">
-                      {current.queueEntry.patient.firstName} {current.queueEntry.patient.lastName}
-                    </h2>
-                    <p className="text-slate-500 font-medium text-lg">
-                      {current.queueEntry.service.department.name} · {current.queueEntry.service.name}
-                    </p>
-                  </div>
-                  
-                  {current.recallCount > 0 && (
-                    <p className="text-sm font-semibold text-amber-600 bg-amber-50 inline-block px-3 py-1 rounded-md border border-amber-100 mb-8">
-                      Recalled {current.recallCount} time{current.recallCount > 1 ? 's' : ''}
-                    </p>
-                  )}
-
-                  <div className="flex flex-wrap justify-center gap-3">
-                    {current.status === 'CALLED' && (
-                      <Button size="lg" className="px-8 shadow-md" disabled={isSubmitting} isLoading={isSubmitting} onClick={() => void handleAction('serve')}>
-                        Serve
-                      </Button>
-                    )}
-                    
-                    {['CALLED', 'SERVING'].includes(current.status) && (
-                      <>
-                        <Button size="lg" variant="secondary" className="px-6 border border-slate-200" disabled={isSubmitting} onClick={() => void handleAction('recall')}>
-                          Recall
-                        </Button>
-                        <Button size="lg" className="px-8 bg-emerald-600 hover:bg-emerald-700 shadow-md" disabled={isSubmitting} onClick={() => void handleAction('complete')}>
-                          Complete
-                        </Button>
-                        <Button size="lg" variant="danger" className="px-6" disabled={isSubmitting} onClick={() => void handleAction('skip')}>
-                          Skip
-                        </Button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Waiting Queue Section */}
-        <div className="lg:col-span-1">
-          <Card className="h-full flex flex-col">
-            <CardHeader className="bg-slate-50/50">
-              <div className="flex justify-between items-center w-full">
-                <CardTitle>Waiting Queue</CardTitle>
-                <Badge variant="neutral">{waiting?.meta.total ?? 0}</Badge>
               </div>
-            </CardHeader>
-            <CardContent className="flex-1 p-0 flex flex-col">
-              {state === 'loading' ? (
-                <div className="p-6 space-y-4">
-                  <Skeleton className="h-16 w-full" />
-                  <Skeleton className="h-16 w-full" />
-                  <Skeleton className="h-16 w-full" />
+            ) : (
+              <div className="w-full max-w-2xl animate-in fade-in zoom-in-95 duration-300">
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-[0.25em] mb-8">NOW SERVING</p>
+                
+                <div className="text-[7rem] sm:text-[9rem] font-black text-teal-600 leading-none tracking-tighter mb-8 drop-shadow-sm">
+                  {current.displayNumber}
                 </div>
-              ) : !waiting?.data.length ? (
-                <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-slate-500">
-                  <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4">
-                    <svg className="w-8 h-8 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                    </svg>
+                
+                <div className="space-y-3 mb-12">
+                  <h2 className="text-3xl font-semibold text-slate-900 tracking-tight">
+                    {current.queueEntry.patient.firstName} {current.queueEntry.patient.lastName}
+                  </h2>
+                  <p className="text-slate-500 font-medium text-lg">
+                    {current.queueEntry.service.name}
+                  </p>
+                  <div className="inline-flex items-center gap-2 mt-4 px-4 py-1.5 bg-slate-50 text-slate-600 font-semibold text-sm rounded-full tracking-wide border border-slate-200">
+                    <div className={`w-2 h-2 rounded-full ${current.status === 'SERVING' ? 'bg-teal-500' : 'bg-amber-500'}`} />
+                    Status: {current.status}
                   </div>
-                  <p className="text-sm font-medium">No customers waiting.</p>
                 </div>
-              ) : (
-                <div className="divide-y divide-slate-100 flex-1 overflow-y-auto max-h-[500px]">
-                  {waiting.data.map(token => (
-                    <div key={token.id} className="p-4 flex items-center justify-between hover:bg-slate-50 transition-colors group">
-                      <div className="flex flex-col min-w-0 pr-4">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="font-bold text-teal-600 text-lg">{token.displayNumber}</span>
-                          <span className="truncate font-semibold text-slate-900 text-sm">
-                            {token.queueEntry.patient.firstName} {token.queueEntry.patient.lastName}
-                          </span>
-                        </div>
-                        <span className="truncate text-xs text-slate-500 font-medium">
+                
+                <div className="flex flex-col sm:flex-row items-center justify-center gap-4 max-w-lg mx-auto">
+                  {current.status === 'CALLED' && (
+                    <Button 
+                      size="lg" 
+                      className="w-full h-14 text-base font-bold bg-teal-600 hover:bg-teal-700 shadow-lg shadow-teal-600/20 rounded-xl transition-all active:scale-[0.98]" 
+                      disabled={isSubmitting} 
+                      isLoading={isSubmitting && submittingAction === 'serve'} 
+                      onClick={() => void handleAction('serve')}
+                    >
+                      SERVE
+                    </Button>
+                  )}
+                  {current.status === 'SERVING' && (
+                    <Button 
+                      size="lg" 
+                      className="w-full h-14 text-base font-bold bg-teal-600 hover:bg-teal-700 shadow-lg shadow-teal-600/20 rounded-xl transition-all active:scale-[0.98]" 
+                      disabled={isSubmitting} 
+                      isLoading={isSubmitting && submittingAction === 'complete'} 
+                      onClick={() => void handleAction('complete')}
+                    >
+                      COMPLETE
+                    </Button>
+                  )}
+                  
+                  <div className="flex w-full gap-4">
+                    <Button 
+                      size="lg" 
+                      variant="secondary" 
+                      className="flex-1 h-14 text-base font-bold bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl transition-all" 
+                      disabled={isSubmitting} 
+                      isLoading={isSubmitting && submittingAction === 'recall'}
+                      onClick={() => void handleAction('recall')}
+                    >
+                      RECALL
+                    </Button>
+                    <Button 
+                      size="lg" 
+                      variant="secondary" 
+                      className="flex-1 h-14 text-base font-bold bg-white hover:bg-red-50 text-red-600 border border-slate-200 hover:border-red-200 rounded-xl transition-all" 
+                      disabled={isSubmitting} 
+                      isLoading={isSubmitting && submittingAction === 'skip'}
+                      onClick={() => void handleAction('skip')}
+                    >
+                      SKIP
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* WAITING QUEUE */}
+        <section className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+          <div className="bg-white p-6 sm:px-8 sm:py-6 border-b border-slate-100 flex justify-between items-center">
+            <h3 className="text-lg font-semibold text-slate-900 tracking-tight">Waiting Queue</h3>
+            {state !== 'loading' && (
+              <div className="px-3 py-1 bg-slate-50 text-slate-600 border border-slate-200 rounded-full text-xs font-semibold tracking-wide">
+                {waiting?.meta.total ?? 0} waiting
+              </div>
+            )}
+          </div>
+          
+          <div className="p-0">
+            {state === 'loading' ? (
+              <div className="p-6 sm:p-8 space-y-4">
+                <Skeleton className="h-16 w-full rounded-xl" />
+                <Skeleton className="h-16 w-full rounded-xl" />
+                <Skeleton className="h-16 w-full rounded-xl" />
+              </div>
+            ) : !waiting?.data.length ? (
+              <div className="p-12 sm:p-16 text-center">
+                <p className="text-slate-500 font-medium text-lg">No customers waiting</p>
+                <p className="text-slate-400 text-sm mt-1">You&apos;re all caught up.</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-50">
+                {waiting.data.map(token => (
+                  <div key={token.id} className="p-5 sm:px-8 sm:py-5 flex items-center justify-between hover:bg-slate-50/50 transition-colors group">
+                    <div className="flex items-center gap-6">
+                      <span className="w-16 font-bold text-2xl text-slate-800 tracking-tight">{token.displayNumber}</span>
+                      <div>
+                        <h4 className="font-semibold text-slate-900">
+                          {token.queueEntry.patient.firstName} {token.queueEntry.patient.lastName}
+                        </h4>
+                        <p className="text-sm text-slate-500 mt-0.5">
                           {token.queueEntry.service.name}
-                        </span>
+                        </p>
                       </div>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider hidden sm:block">Waiting</span>
                       <Button
                         size="sm"
                         variant="secondary"
-                        className="opacity-0 group-hover:opacity-100 transition-opacity focus:opacity-100 shrink-0 border border-slate-200"
+                        className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity bg-white border border-slate-200 font-semibold text-slate-700 hover:border-slate-300 hover:bg-slate-50 shadow-sm"
                         disabled={isSubmitting}
+                        isLoading={isSubmitting && submittingAction === `call-${token.id}`}
                         onClick={() => void handleCallSpecific(token.id)}
                       >
                         Call
                       </Button>
                     </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
       </div>
     </div>
   );

@@ -1,5 +1,5 @@
 - Prefers non-destructive database and migration operations: never uses `prisma migrate reset`, `DROP DATABASE`, `DROP SCHEMA`, or deletion/reordering of historical migrations. Confidence: 0.95
-- Prefers verification by actually running commands and reporting real results, not static inspection alone. Confidence: 0.9
+- Prefers verification by actually running commands and testing the complete end-to-end flow, reporting real results — never declares something fixed without actually testing it; does not stop at the first error found but verifies the whole flow afterward. Confidence: 0.95
 - Prefers targeted root-cause fixes over broad changes; does not weaken or remove tests to make them pass. Confidence: 0.9
 - Prefers preserving existing project architecture rather than rewriting it when fixing issues. Confidence: 0.85
 - In multi-tenant systems, never trusts client-provided tenant/organization/branch IDs from request bodies, query strings, or route params for authorization — always resolves ownership server-side through authenticated session. Confidence: 0.95
@@ -13,4 +13,12 @@
 - Continues implementation and quality checks despite engine warnings (e.g., EBADENGINE) unless they cause actual command failures, rather than stopping to fix them. Confidence: 0.9
 - Reports engine warning details (package name, required versions, current versions, impact assessment) after quality gate completion rather than interrupting work to resolve them. Confidence: 0.85
 - Prefers fully autonomous execution with all permissions granted: run commands and make changes without asking for permission, approval, or confirmation first (explicitly stated: "all permission allow, no need to ask or approval"). Confidence: 0.98
-- Communicates in casual Hinglish (Hindi-English mix, informal register such as "bro"/"bhai") and is comfortable with responses in the same tone. Confidence: 0.6
+- Communicates in casual Hinglish (Hindi-English mix, informal register such as "bro"/"bhai") and is comfortable with responses in the same tone. Confidence: 0.7
+th responses in the same tone. Confidence: 0.6
+ 0.95
+- Never exposes secrets, tokens, or password hashes in output or reports — reports only whether such values are present and correctly configured. Confidence: 0.9
+- Expects debugging/investigation tasks to conclude with a structured root-cause report enumerating findings, the exact root cause, files changed, the exact fix, and post-fix verification results (lint, typecheck, tests, build). Confidence: 0.9
+- Supplies a fixed final-report template per task (numbered findings: files changed, auth/DB/schema changed, gate results, login verification, production DB touched) and expects it followed exactly, without claiming success until every listed check actually completes. Confidence: 0.85
+- Prescribes the exact verification command sequence for this repo — `npm run lint`, `npm run typecheck`, `npm test`, `npm run build`, `npx prisma validate` — followed by confirming login still works with seeded admin credentials and that no production/Neon database was touched. Confidence: 0.9
+- Prefers real fixes over lint suppression: never disable ESLint rules, weaken lint config globally, or use ignore comments to silence issues — fix unused variables per the codebase's existing error-handling pattern, and resolve typed-linting parser crashes on plain JS files via minimal targeted config (e.g., per-file overrides excluding TS-specific typed rules). Confidence: 0.9
+- Frames fix tasks with explicit negative constraints enumerating what must NOT be changed (e.g., auth logic, concurrency logic, DB/schema/migrations, UI behavior) — scope fixes strictly to the named issues and keep all existing tests and functionality intact. Confidence: 0.9

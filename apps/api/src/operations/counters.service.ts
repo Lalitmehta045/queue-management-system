@@ -114,7 +114,7 @@ export class CountersService {
         organizationId: tenant.organizationId,
         branchId,
         status: MembershipStatus.ACTIVE,
-        role: { in: [Role.COUNTER_OPERATOR, Role.RECEPTIONIST] },
+        role: Role.COUNTER_OPERATOR,
       },
       select: { userId: true },
     });
@@ -177,7 +177,7 @@ export class CountersService {
             organizationId: tenant.organizationId,
             branchId,
             status: MembershipStatus.ACTIVE,
-            role: { in: [Role.COUNTER_OPERATOR, Role.RECEPTIONIST] },
+            role: Role.COUNTER_OPERATOR,
           },
         },
       },

@@ -10,6 +10,10 @@ import { ErrorState } from '../../../../../components/ui/ErrorState';
 
 type PrinterInfo = { id: string; status: string; name: string };
 
+const systemFont = {
+  fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Inter", "Segoe UI", sans-serif'
+};
+
 function PrintTicketPage() {
   const { tokenId } = useParams<{ tokenId: string }>();
   const searchParams = useSearchParams();
@@ -81,7 +85,6 @@ function PrintTicketPage() {
           setCurrentBranchId(branchId);
         }
 
-        // Check hardware printers
         try {
           const printersRes = await fetchWithAuth(`/api/branches/${branchId}/printers`, {
             headers: { 'x-organization-id': membership.organization.id },
@@ -94,7 +97,7 @@ function PrintTicketPage() {
             }
           }
         } catch {
-          // gracefully ignore printer fetch failures
+          // ignore
         }
 
         if (!cancelled && isMounted.current) {
@@ -153,9 +156,9 @@ function PrintTicketPage() {
 
   if (state === 'loading') {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-slate-100">
+      <div className="flex items-center justify-center min-h-screen bg-slate-100" style={systemFont}>
         <div className="animate-pulse flex flex-col items-center">
-          <div className="w-12 h-12 border-4 border-teal-500 border-t-transparent rounded-full animate-spin"></div>
+          <div className="w-12 h-12 border-4 border-slate-300 border-t-slate-800 rounded-full animate-spin"></div>
           <p className="mt-4 text-slate-500 font-medium">Preparing ticket...</p>
         </div>
       </div>
@@ -164,7 +167,7 @@ function PrintTicketPage() {
 
   if (state === 'forbidden') {
     return (
-      <div className="max-w-md mx-auto mt-12 p-6">
+      <div className="max-w-md mx-auto mt-12 p-6" style={systemFont}>
         <ErrorState title="Access Denied" message="You do not have permission to print this ticket." />
       </div>
     );
@@ -172,25 +175,24 @@ function PrintTicketPage() {
 
   if (state === 'error' || !ticket) {
     return (
-      <div className="max-w-md mx-auto mt-12 p-6">
+      <div className="max-w-md mx-auto mt-12 p-6" style={systemFont}>
         <ErrorState title="Print Error" message="Unable to load ticket data for printing." onRetry={() => window.location.reload()} />
       </div>
     );
   }
 
   const issuedDate = new Date(ticket.token.issuedAt);
-  const dateStr = issuedDate.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const dateStr = issuedDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
   const timeStr = issuedDate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
 
   return (
-    <div className="min-h-screen bg-slate-100 print:bg-white text-black font-sans flex flex-col items-center">
-      {/* Print Toolbar - Hidden when printing */}
+    <div className="min-h-screen bg-slate-100 print:bg-white text-black flex flex-col items-center" style={systemFont}>
       <div className="print:hidden w-full max-w-md bg-white border-b shadow-sm sticky top-0 z-10">
         <div className="p-4 flex flex-col gap-3">
           <div className="flex items-center justify-between">
-            <a href="/dashboard/tokens" className="text-sm font-semibold text-slate-600 hover:text-slate-900 transition-colors">
-              &larr; Back to tokens
+            <a href="/dashboard/reception" className="text-sm font-semibold text-slate-600 hover:text-slate-900 transition-colors">
+              &larr; Back to reception
             </a>
             <div className="flex gap-2">
               {hardwarePrinterId && (
@@ -226,41 +228,33 @@ function PrintTicketPage() {
         </div>
       </div>
       
-      {/* Receipt Canvas */}
-      <div className="my-8 print:my-0 print:shadow-none w-full max-w-sm bg-white shadow-xl p-8 print:p-0">
-        <div className="receipt-content text-center flex flex-col items-center justify-center">
+      <div className="my-8 print:my-0 print:shadow-none w-full max-w-sm bg-white shadow-xl p-8 print:p-0 print:w-[80mm] print:mx-auto">
+        <div className="receipt-content flex flex-col text-center">
           
-          <div className="mb-6 w-full pb-4 border-b-2 border-dashed border-gray-300">
-            <h1 className="text-xl font-bold uppercase tracking-widest">{ticket.organization.name}</h1>
-            <p className="text-sm text-gray-600 mt-1 uppercase font-medium">
-              {ticket.branch.name}{ticket.branch.code ? ` (${ticket.branch.code})` : ''}
-            </p>
+          <div className="mb-6 w-full">
+            <h1 className="text-xl font-bold uppercase tracking-widest text-black">{ticket.organization.name}</h1>
           </div>
 
-          <div className="w-full flex justify-between text-xs text-gray-500 font-mono mb-8">
+          <div className="w-full flex justify-between text-xs text-black font-medium mb-8 uppercase tracking-wider">
             <span>Date: {dateStr}</span>
             <span>Time: {timeStr}</span>
           </div>
 
-          <div className="mb-2 w-full text-center">
-            <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-2">Your Token Number</p>
-            <div className="text-[5rem] font-black leading-none tracking-tighter">
+          <div className="mb-8 w-full text-center">
+            <div className="text-[6rem] font-black leading-none tracking-tighter text-black">
               {ticket.token.displayNumber}
             </div>
           </div>
 
-          <div className="my-8 w-full">
-            <div className="inline-block px-4 py-2 bg-gray-100 font-bold text-lg rounded-lg border border-gray-200 print:border-gray-400">
-              {ticket.service.name}
+          <div className="w-full flex flex-col items-center mb-8">
+            <div className="p-1 bg-white">
+              <QRCode value={`${origin}/queue/${tokenId}`} size={120} level="M" fgColor="#000000" />
             </div>
           </div>
 
-          <div className="mt-8 pt-8 border-t-2 border-dashed border-gray-300 w-full flex flex-col items-center">
-            <div className="p-2 bg-white rounded-xl shadow-sm border border-gray-100 print:shadow-none print:border-none print:p-0">
-              <QRCode value={`${origin}/queue/${tokenId}`} size={120} level="M" />
-            </div>
-            <p className="text-xs text-gray-500 font-medium uppercase tracking-wider mt-4">
-              Scan to check queue status
+          <div className="w-full text-center">
+            <p className="text-sm font-bold text-black uppercase tracking-widest">
+              Please wait for your turn
             </p>
           </div>
           
@@ -273,9 +267,9 @@ function PrintTicketPage() {
 export default function PrintTicketRoute() {
   return (
     <Suspense fallback={
-      <div className="flex items-center justify-center min-h-screen bg-slate-100">
+      <div className="flex items-center justify-center min-h-screen bg-slate-100" style={systemFont}>
         <div className="animate-pulse flex flex-col items-center">
-          <div className="w-12 h-12 border-4 border-teal-500 border-t-transparent rounded-full animate-spin"></div>
+          <div className="w-12 h-12 border-4 border-slate-300 border-t-slate-800 rounded-full animate-spin"></div>
           <p className="mt-4 text-slate-500 font-medium">Loading ticket...</p>
         </div>
       </div>

@@ -7,8 +7,10 @@ import { NotificationsController } from './notifications.controller';
 import { NotificationsService } from './notifications.service';
 import { MockProvider, NoopProvider, NotificationProviderToken } from './notification-providers';
 import { TicketPrintService } from './ticket-print.service';
+import { PrismaModule } from '../prisma/prisma.module';
 
 @Module({
+  imports: [PrismaModule],
   controllers: [NotificationsController],
   providers: [
     NotificationSettingsService,

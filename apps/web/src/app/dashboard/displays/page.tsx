@@ -126,7 +126,7 @@ export default function DisplaysPage() {
       if (!response.ok) { setMessage('Unable to change display status.'); return; }
       
       setDisplays((current) => current.map((item) => item.id === display.id ? { ...item, active: !display.active } : item));
-    } catch (err) {
+    } catch {
       setMessage('A network error occurred.');
     }
   }

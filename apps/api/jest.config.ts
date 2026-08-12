@@ -8,7 +8,8 @@ const config: Config = {
     "^.+\\.(t|j)s$": ["ts-jest", { tsconfig: "tsconfig.json" }]
   },
   collectCoverageFrom: ["src/**/*.(t|j)s"],
-  testEnvironment: "node"
+  testEnvironment: "node",
+  globalSetup: "<rootDir>/jest.global-setup.js"
 };
 
 export default config;

@@ -1,5 +1,6 @@
-import { Controller, Get, Param, Post, Req, UseGuards, Sse, MessageEvent } from '@nestjs/common';
+import { Controller, Get, Param, Post, Req, Res, UseGuards, Sse, MessageEvent } from '@nestjs/common';
 import { Observable } from 'rxjs';
+import type { Response } from 'express';
 import { Role } from '@prisma/client';
 import { getAuditContext } from '../audit/audit-context';
 import { CurrentTenant } from '../auth/decorators/current-tenant.decorator';
@@ -29,8 +30,9 @@ export class QueueCallingController {
   }
 
   @Get('current')
-  current(@CurrentTenant() tenant: AuthenticatedRequest['tenant'], @CurrentUser() user: { userId: string }, @Param('branchId') branchId: string, @Param('counterId') counterId: string) {
-    return this.queueCallingService.current(this.requireTenant(tenant), user.userId, branchId, counterId);
+  async current(@CurrentTenant() tenant: AuthenticatedRequest['tenant'], @CurrentUser() user: { userId: string }, @Param('branchId') branchId: string, @Param('counterId') counterId: string, @Res() response: Response) {
+    const current = await this.queueCallingService.current(this.requireTenant(tenant), user.userId, branchId, counterId);
+    return response.status(200).json(current);
   }
 
   @Get('waiting')

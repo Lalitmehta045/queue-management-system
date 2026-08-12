@@ -117,9 +117,7 @@ export type WaitingResponse = {
 export type PublicToken = {
   tokenLabel: string;
   counter: string;
-  status: TokenStatus;
-  service?: string;
-  department?: string;
+  status: 'WAITING' | 'CALLED' | 'SERVING' | 'SKIPPED' | 'COMPLETED';
   recalled: boolean;
   recallCount: number;
   calledAt: string | null;
@@ -131,6 +129,11 @@ export type DisplaySnapshot = {
   recent: PublicToken[];
   waitingSummary: { total: number };
   updatedAt: string;
+  counters: {
+    counter: string;
+    now: PublicToken | null;
+    next: PublicToken | null;
+  }[];
 };
 
 // ── Print Ticket ──

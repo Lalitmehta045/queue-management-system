@@ -92,7 +92,7 @@ export default function AppointmentsPage() {
           setBranches(data.data || []);
           setBranchId(data.data[0]?.id ?? '');
         }
-      } catch (err) {
+      } catch {
         if (isMounted.current) setState('error');
       }
     }
@@ -136,7 +136,7 @@ export default function AppointmentsPage() {
           
           setState('ready');
         }
-      } catch (err) {
+      } catch {
         if (isMounted.current) setState('error');
       }
     }

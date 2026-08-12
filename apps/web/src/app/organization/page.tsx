@@ -60,7 +60,7 @@ export default function OrganizationPage() {
 
   return (
     <main className="page-shell">
-      <nav className="top-nav"><a href="/dashboard">Dashboard</a><a href="/organization/branches">Branches</a></nav>
+      <nav className="top-nav"><a href="/dashboard">Dashboard</a><a href="/organization/branches">Branches</a><a href="/organization/team-members">Team Members</a></nav>
       <section className="content-panel">
         <p className="eyebrow">Organization settings</p>
         <h1>{organization.name}</h1>
@@ -73,6 +73,7 @@ export default function OrganizationPage() {
           {message && <p className="success-text">{message}</p>}
         </form>
         <button type="button" className="link-button" onClick={() => router.push('/organization/branches')}>Manage branches</button>
+        <button type="button" className="link-button" onClick={() => router.push('/organization/team-members')} style={{ marginLeft: '1rem' }}>Manage team members</button>
         <button type="button" className="link-button" onClick={() => router.push('/organization/subscription')} style={{ marginLeft: '1rem' }}>View Subscription</button>
       </section>
     </main>

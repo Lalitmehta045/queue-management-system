@@ -129,6 +129,9 @@ describe('Queue calling (e2e)', () => {
     expect((current.body as TokenResponse).status).toBe(TokenStatus.SERVING);
     const completed = await tenantRequest(operatorOneToken, orgA).post(`/branches/${branchA1}/counters/${counterA1}/current/complete`).expect(201);
     expect((completed.body as TokenResponse).status).toBe(TokenStatus.COMPLETED);
+    const emptyCurrent = await tenantRequest(operatorOneToken, orgA).get(`/branches/${branchA1}/counters/${counterA1}/current`).expect(200);
+    expect(emptyCurrent.headers['content-type']).toMatch(/application\/json/);
+    expect(emptyCurrent.text).toBe('null');
     await tenantRequest(operatorOneToken, orgA).post(`/branches/${branchA1}/counters/${counterA1}/current/recall`).expect(409);
     await tenantRequest(operatorOneToken, orgA).post(`/branches/${branchA1}/counters/${counterA1}/tokens/${tokenA1}/call`).send({}).expect(409);
   });
@@ -223,6 +226,8 @@ describe('Queue calling (e2e)', () => {
     await prisma.membership.update({ where: { userId_organizationId: { userId: operatorOneId, organizationId: orgA } }, data: { status: MembershipStatus.SUSPENDED } });
     await tenantRequest(operatorOneToken, orgA).get(`/branches/${branchA1}/counters/${counterA1}/current`).expect(403);
     await prisma.membership.update({ where: { userId_organizationId: { userId: operatorOneId, organizationId: orgA } }, data: { status: MembershipStatus.ACTIVE } });
+    await request(server).get(`/branches/${branchA1}/counters/${counterA1}/current?organizationId=${orgA}`).set('Authorization', `Bearer ${operatorOneToken}`).expect(200);
+    await request(server).get(`/branches/${branchA1}/counters/${counterA1}/current?organizationId=${orgB}`).set('Authorization', `Bearer ${operatorOneToken}`).expect(403);
     await tenantRequest(operatorTwoToken, orgA).post(`/branches/${branchA1}/counters/${counterA1}/call-next`).expect(403);
     await tenantRequest(operatorOneToken, orgA).post(`/branches/${branchA1}/counters/${counterA1}/tokens/not-a-uuid/call`).send({}).expect(404);
   });

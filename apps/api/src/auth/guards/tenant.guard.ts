@@ -20,9 +20,16 @@ export class TenantGuard implements CanActivate {
     }
 
     const organizationHeader = request.headers['x-organization-id'];
-    const organizationId = Array.isArray(organizationHeader)
+    const organizationHeaderValue = Array.isArray(organizationHeader)
       ? organizationHeader[0]
       : organizationHeader;
+    const organizationQuery = request.query.organizationId;
+    const organizationQueryValue = Array.isArray(organizationQuery)
+      ? organizationQuery.find((value): value is string => typeof value === 'string')
+      : typeof organizationQuery === 'string'
+        ? organizationQuery
+        : undefined;
+    const organizationId = organizationHeaderValue ?? organizationQueryValue;
 
     if (!organizationId) {
       throw new ForbiddenException('Organization context is required');
