@@ -371,7 +371,7 @@ export default function CounterWorkspacePage() {
                 
                 <div className="space-y-3 mb-12">
                   <h2 className="text-3xl font-semibold text-slate-900 tracking-tight">
-                    {current.queueEntry.patient.firstName} {current.queueEntry.patient.lastName}
+                    {current.queueEntry.patient ? `${current.queueEntry.patient.firstName} ${current.queueEntry.patient.lastName}` : 'Walk-in Customer'}
                   </h2>
                   <p className="text-slate-500 font-medium text-lg">
                     {current.queueEntry.service.name}
@@ -465,7 +465,7 @@ export default function CounterWorkspacePage() {
                       <span className="w-16 font-bold text-2xl text-slate-800 tracking-tight">{token.displayNumber}</span>
                       <div>
                         <h4 className="font-semibold text-slate-900">
-                          {token.queueEntry.patient.firstName} {token.queueEntry.patient.lastName}
+                          {token.queueEntry.patient ? `${token.queueEntry.patient.firstName} ${token.queueEntry.patient.lastName}` : 'Walk-in Customer'}
                         </h4>
                         <p className="text-sm text-slate-500 mt-0.5">
                           {token.queueEntry.service.name}

@@ -76,7 +76,7 @@ export type Token = {
       patientNumber: string;
       firstName: string;
       lastName: string;
-    };
+    } | null;
     service: {
       name: string;
       department: { name: string };
@@ -136,6 +136,7 @@ export type DisplaySnapshot = {
     counter: string;
     now: PublicToken | null;
     next: PublicToken | null;
+    waitingTokens: PublicToken[];
   }[];
 };
 

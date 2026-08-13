@@ -51,21 +51,28 @@ export class TokensService {
           const dailyTokenCount = await tx.token.count({
             where: {
               businessDate: normalizedBusinessDate,
-              queueEntry: { patient: { branch: { organizationId: tenant.organizationId } } },
+              queueEntry: {
+                OR: [
+                  { patientId: null, service: { department: { branch: { organizationId: tenant.organizationId } } } },
+                  { patient: { branch: { organizationId: tenant.organizationId } } },
+                ],
+              },
             },
           });
           await this.entitlements.enforceVolumeLimit(tenant.organizationId, 'maxDailyTokens', dailyTokenCount, 1, tx);
 
           const lockedEntries = await tx.$queryRaw<{ id: string }[]>`
             SELECT q.id FROM "QueueEntry" q
-            INNER JOIN "Patient" p ON q."patientId" = p.id
-            INNER JOIN "Branch" b ON p."branchId" = b.id
+            INNER JOIN "Service" s ON q."serviceId" = s.id
+            INNER JOIN "Department" d ON s."departmentId" = d.id
+            INNER JOIN "Branch" b ON d."branchId" = b.id
             WHERE q.id = ${queueEntryId}::uuid
-              AND p."branchId" = ${branchId}::uuid
+              AND d."branchId" = ${branchId}::uuid
               AND b."organizationId" = ${tenant.organizationId}::uuid
             FOR UPDATE
           `;
           if (!lockedEntries.length) {
+            console.error('LOCKED ENTRIES FAILED', { queueEntryId, branchId, orgId: tenant.organizationId });
             throw new NotFoundException('Queue entry not found or is not eligible for a token');
           }
 
@@ -73,12 +80,18 @@ export class TokensService {
             where: {
               id: queueEntryId,
               status: QueueEntryStatus.WAITING,
-              patient: { branchId, status: 'ACTIVE', branch: { organizationId: tenant.organizationId } },
+              OR: [
+                { patientId: null },
+                { patient: { branchId, status: 'ACTIVE', branch: { organizationId: tenant.organizationId } } },
+              ],
               service: { status: 'ACTIVE', department: { branchId, branch: { organizationId: tenant.organizationId } } },
             },
             select: { id: true, patientId: true, serviceId: true, token: { select: this.tokenSelect }, service: { select: { name: true } } },
           });
-          if (!queueEntry) throw new NotFoundException('Queue entry not found or is not eligible for a token');
+          if (!queueEntry) {
+            console.error('FINDFIRST FAILED', { queueEntryId, branchId, orgId: tenant.organizationId });
+            throw new NotFoundException('Queue entry not found or is not eligible for a token');
+          }
           if (queueEntry.token) return { token: queueEntry.token, created: false };
 
           const sequence = await tx.tokenSequence.findUnique({ where: { branchId_serviceId_businessDate: { branchId, serviceId: queueEntry.serviceId, businessDate: normalizedBusinessDate } } });
@@ -131,7 +144,7 @@ export class TokensService {
   async list(tenant: Tenant, branchId: string, query: ListTokensDto) {
     await this.authorizeBranch(tenant, branchId);
     const businessDate = query.businessDate ? this.parseBusinessDate(query.businessDate) : this.toDate(this.businessDateKey());
-    const queueEntryScope: Prisma.QueueEntryWhereInput = { patient: { branchId, branch: { organizationId: tenant.organizationId } }, service: { department: { branchId, branch: { organizationId: tenant.organizationId } } } };
+    const queueEntryScope = this.getQueueEntryScope(tenant.organizationId, branchId);
     const where: Prisma.TokenWhereInput = { businessDate, queueEntry: queueEntryScope };
     if (query.status) where.status = query.status;
     if (query.serviceId) where.queueEntry = { ...queueEntryScope, serviceId: query.serviceId };
@@ -141,7 +154,7 @@ export class TokensService {
     if (search) {
       where.OR = [
         { displayNumber: { contains: search, mode: 'insensitive' } },
-        { queueEntry: { ...queueEntryScope, patient: { branchId, branch: { organizationId: tenant.organizationId }, patientNumber: { contains: search, mode: 'insensitive' } } } },
+        { queueEntry: { ...queueEntryScope, patient: { patientNumber: { contains: search, mode: 'insensitive' } } } },
       ];
     }
     const orderBy: Prisma.TokenOrderByWithRelationInput = { [query.sortBy]: query.sortOrder };
@@ -162,7 +175,7 @@ export class TokensService {
   async getForQueueEntry(tenant: Tenant, branchId: string, queueEntryId: string) {
     await this.authorizeBranch(tenant, branchId);
     if (!isUUID(queueEntryId)) throw new NotFoundException('Token not found');
-    const token = await this.prisma.token.findFirst({ where: { queueEntryId, queueEntry: { patient: { branchId, branch: { organizationId: tenant.organizationId } }, service: { department: { branchId, branch: { organizationId: tenant.organizationId } } } } }, select: this.tokenSelect });
+    const token = await this.prisma.token.findFirst({ where: { queueEntryId, queueEntry: this.getQueueEntryScope(tenant.organizationId, branchId) }, select: this.tokenSelect });
     if (!token) throw new NotFoundException('Token not found');
     return token;
   }
@@ -172,7 +185,7 @@ export class TokensService {
     const existing = await this.findScopedToken(tenant.organizationId, branchId, tokenId);
     if (!existing) throw new NotFoundException('Token not found');
     if (existing.status === TokenStatus.CANCELLED) throw new ConflictException('Token is already cancelled');
-    const result = await this.prisma.token.updateMany({ where: { id: tokenId, status: TokenStatus.WAITING, queueEntry: { patient: { branchId, branch: { organizationId: tenant.organizationId } }, service: { department: { branchId, branch: { organizationId: tenant.organizationId } } } } }, data: { status: TokenStatus.CANCELLED } });
+    const result = await this.prisma.token.updateMany({ where: { id: tokenId, status: TokenStatus.WAITING, queueEntry: this.getQueueEntryScope(tenant.organizationId, branchId) }, data: { status: TokenStatus.CANCELLED } });
     if (result.count !== 1) throw new ConflictException('Token could not be cancelled');
     const token = await this.get(tenant, branchId, tokenId);
     this.displayEvents.publish(branchId, 'QUEUE_UPDATED');
@@ -191,8 +204,11 @@ export class TokensService {
 
   private async getQueueEntryServiceId(organizationId: string, branchId: string, queueEntryId: string) {
     if (!isUUID(queueEntryId)) throw new NotFoundException('Queue entry not found');
-    const entry = await this.prisma.queueEntry.findFirst({ where: { id: queueEntryId, status: QueueEntryStatus.WAITING, patient: { branchId, status: 'ACTIVE', branch: { organizationId } }, service: { status: 'ACTIVE', department: { branchId, branch: { organizationId } } } }, select: { serviceId: true } });
-    if (!entry) throw new NotFoundException('Queue entry not found');
+    const entry = await this.prisma.queueEntry.findFirst({ where: { id: queueEntryId, status: QueueEntryStatus.WAITING, OR: [{ patientId: null }, { patient: { branchId, status: 'ACTIVE', branch: { organizationId } } }], service: { status: 'ACTIVE', department: { branchId, branch: { organizationId } } } }, select: { serviceId: true } });
+    if (!entry) {
+      console.error('getQueueEntryServiceId FAILED', { queueEntryId, branchId, orgId: organizationId });
+      throw new NotFoundException('Queue entry not found');
+    }
     return entry.serviceId;
   }
 
@@ -212,9 +228,19 @@ export class TokensService {
     return branch;
   }
 
+  private getQueueEntryScope(organizationId: string, branchId: string): Prisma.QueueEntryWhereInput {
+    return {
+      OR: [
+        { patientId: null },
+        { patient: { branchId, branch: { organizationId } } },
+      ],
+      service: { department: { branchId, branch: { organizationId } } },
+    };
+  }
+
   private async findScopedToken(organizationId: string, branchId: string, tokenId: string) {
     if (!isUUID(tokenId)) return null;
-    return this.prisma.token.findFirst({ where: { id: tokenId, queueEntry: { patient: { branchId, branch: { organizationId } }, service: { department: { branchId, branch: { organizationId } } } } }, select: this.tokenSelect });
+    return this.prisma.token.findFirst({ where: { id: tokenId, queueEntry: this.getQueueEntryScope(organizationId, branchId) }, select: this.tokenSelect });
   }
 
   private businessDateKey(now = new Date()): BusinessDateKey {

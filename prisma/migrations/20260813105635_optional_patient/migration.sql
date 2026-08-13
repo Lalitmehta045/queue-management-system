@@ -1,0 +1,8 @@
+-- AlterEnum
+ALTER TYPE "AuditAction" ADD VALUE 'TEAM_MEMBER_PASSWORD_UPDATED';
+
+-- AlterEnum
+ALTER TYPE "AuditResourceType" ADD VALUE 'MEMBERSHIP';
+
+-- AlterTable
+ALTER TABLE "QueueEntry" ALTER COLUMN "patientId" DROP NOT NULL;

@@ -181,7 +181,7 @@ export class NotificationsService {
       },
     });
     if (!token) return;
-    const phone = token.queueEntry.patient.phone?.trim();
+    const phone = token.queueEntry.patient?.phone?.trim();
     if (!phone) return;
 
     const settings = await this.settingsService.getEffective(branchId);

@@ -25,17 +25,18 @@ export class QueueEntriesService {
     if (branch.queueStatus === 'PAUSED') {
       throw new ConflictException('Queue is currently paused for this branch');
     }
-    const [patient, service] = await this.prisma.$transaction([
-      this.prisma.patient.findFirst({
+    const [patient, service] = await Promise.all([
+      dto.patientId ? this.prisma.patient.findFirst({
         where: { id: dto.patientId, branchId, status: 'ACTIVE', branch: { organizationId: tenant.organizationId } },
-        select: { id: true },
-      }),
+        select: { id: true, patientNumber: true },
+      }) : Promise.resolve(null),
       this.prisma.service.findFirst({
         where: { id: dto.serviceId, status: 'ACTIVE', department: { branchId, branch: { organizationId: tenant.organizationId } } },
-        select: { id: true, departmentId: true, acceptingQueueEntries: true },
+        select: { id: true, name: true, departmentId: true, acceptingQueueEntries: true },
       }),
     ]);
-    if (!patient || !service) throw new NotFoundException('Patient or service not found');
+    if (dto.patientId && !patient) throw new NotFoundException('Patient not found');
+    if (!service) throw new NotFoundException('Service not found');
     if (!service.acceptingQueueEntries) {
       throw new ConflictException('This service is not currently accepting new queue entries');
     }
@@ -57,12 +58,12 @@ export class QueueEntriesService {
       const entry = await this.prisma.$transaction(async (tx) => {
         await this.entitlements.lockOrganization(tenant.organizationId, tx);
         const waitingCount = await tx.queueEntry.count({
-          where: { status: 'WAITING', patient: { branch: { organizationId: tenant.organizationId } } },
+          where: { status: 'WAITING', service: { department: { branch: { organizationId: tenant.organizationId } } } },
         });
         await this.entitlements.enforceVolumeLimit(tenant.organizationId, 'maxWaitingQueueSize', waitingCount, 1, tx);
 
         return tx.queueEntry.create({
-          data: { patientId: patient.id, serviceId: service.id, activeEntryKey: `${patient.id}:${service.id}`, priority: entryPriority, priorityWeight },
+          data: { patientId: patient?.id ?? null, serviceId: service.id, activeEntryKey: patient ? `${patient.id}:${service.id}` : null, priority: entryPriority, priorityWeight },
           select: this.queueEntrySelect,
         });
       });
@@ -73,7 +74,7 @@ export class QueueEntriesService {
         action: AuditAction.QUEUE_ENTRY_CREATED,
         resourceType: AuditResourceType.QUEUE_ENTRY,
         resourceId: entry.id,
-        metadata: { patientId: entry.patientId, patientNumber: entry.patient.patientNumber, serviceId: entry.serviceId, serviceName: entry.service.name, status: entry.status },
+        metadata: { patientId: entry.patientId, patientNumber: patient?.patientNumber, serviceId: entry.serviceId, serviceName: service.name, status: entry.status },
       });
       return entry;
     } catch (error: unknown) {
@@ -84,14 +85,13 @@ export class QueueEntriesService {
 
   async list(tenant: Tenant, branchId: string, query: ListQueueEntriesDto) {
     await this.authorizeBranch(tenant, branchId);
-    const patientScope: Prisma.PatientWhereInput = { branchId, branch: { organizationId: tenant.organizationId } };
     const serviceScope: Prisma.ServiceWhereInput = { department: { branchId, branch: { organizationId: tenant.organizationId } } };
-    const where: Prisma.QueueEntryWhereInput = { patient: patientScope, service: serviceScope };
+    const where: Prisma.QueueEntryWhereInput = { service: serviceScope };
     if (query.status) where.status = query.status;
     if (query.patientId) where.patientId = query.patientId;
     if (query.serviceId) where.serviceId = query.serviceId;
     if (query.search?.trim()) {
-      where.patient = { ...patientScope, OR: [
+      where.patient = { OR: [
         { patientNumber: { contains: query.search.trim(), mode: 'insensitive' } },
         { firstName: { contains: query.search.trim(), mode: 'insensitive' } },
         { lastName: { contains: query.search.trim(), mode: 'insensitive' } },
@@ -121,7 +121,6 @@ export class QueueEntriesService {
       where: {
         id: queueEntryId,
         status: QueueEntryStatus.WAITING,
-        patient: { branchId, branch: { organizationId: tenant.organizationId } },
         service: { department: { branchId, branch: { organizationId: tenant.organizationId } } },
       },
       data: { status: QueueEntryStatus.CANCELLED, activeEntryKey: null },
@@ -136,7 +135,7 @@ export class QueueEntriesService {
       action: AuditAction.QUEUE_ENTRY_CANCELLED,
       resourceType: AuditResourceType.QUEUE_ENTRY,
       resourceId: entry.id,
-      metadata: { patientId: entry.patientId, patientNumber: entry.patient.patientNumber, serviceId: entry.serviceId, serviceName: entry.service.name, status: entry.status },
+      metadata: { patientId: entry.patientId, patientNumber: entry.patient?.patientNumber, serviceId: entry.serviceId, serviceName: entry.service.name, status: entry.status },
     });
     return entry;
   }
@@ -151,7 +150,7 @@ export class QueueEntriesService {
   private async findScopedEntry(organizationId: string, branchId: string, queueEntryId: string) {
     if (!isUUID(queueEntryId)) return null;
     return this.prisma.queueEntry.findFirst({
-      where: { id: queueEntryId, patient: { branchId, branch: { organizationId } }, service: { department: { branchId, branch: { organizationId } } } },
+      where: { id: queueEntryId, service: { department: { branchId, branch: { organizationId } } } },
       select: this.queueEntrySelect,
     });
   }

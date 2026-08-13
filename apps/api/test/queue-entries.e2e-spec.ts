@@ -174,4 +174,27 @@ describe('Queue entries (e2e)', () => {
     expect(results.map((result) => result.status).sort()).toEqual([201, 409]);
     expect(await prisma.queueEntry.count({ where: { patientId: concurrentPatient, serviceId: serviceA1, status: QueueEntryStatus.WAITING } })).toBe(1);
   });
+
+  it('supports anonymous / walk-in tokens (customer is optional)', async () => {
+    // 1. Generate token without customer
+    const createRes = await tenantRequest(tokenA, orgA)
+      .post(`/branches/${branchA1}/queue-entries`)
+      .send({ serviceId: serviceA1 });
+    expect(createRes.status).toBe(201);
+    
+    const queueEntry = createRes.body as QueueEntryResponse;
+    expect(queueEntry.patientId).toBeNull();
+    
+    // 2. Create token for the entry
+    const tokenRes = await tenantRequest(tokenA, orgA)
+      .post(`/branches/${branchA1}/queue-entries/${queueEntry.id}/token`)
+      .send({});
+    expect(tokenRes.status).toBe(201);
+    const token = tokenRes.body as { status: string };
+    expect(token.status).toBe('WAITING');
+    
+    // Counter allocation should assign it to the least loaded counter if one is active.
+    // In e2e test, we may not have an active counter, so it stays unassigned or assigned based on setup.
+    // If it gets a counterId, it proves allocation didn't break for anonymous tokens.
+  });
 });

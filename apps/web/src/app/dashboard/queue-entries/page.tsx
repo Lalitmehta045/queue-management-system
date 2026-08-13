@@ -318,8 +318,8 @@ export default function QueueEntriesPage() {
                 {entries.data.map((entry) => (
                   <tr key={entry.id} className="hover:bg-slate-50/50 transition-colors">
                     <td className="px-6 py-4">
-                      <div className="font-medium text-slate-900">{entry.patient.firstName} {entry.patient.lastName}</div>
-                      <div className="text-slate-500 text-xs mt-0.5">{entry.patient.patientNumber}</div>
+                      <div className="font-medium text-slate-900">{entry.patient ? `${entry.patient.firstName} ${entry.patient.lastName}` : 'Walk-in Customer'}</div>
+                      <div className="text-slate-500 text-xs mt-0.5">{entry.patient?.patientNumber || '-'}</div>
                     </td>
                     <td className="px-6 py-4">
                       <div className="text-slate-900">{entry.service.name}</div>

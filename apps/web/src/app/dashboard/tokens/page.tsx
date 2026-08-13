@@ -315,8 +315,8 @@ export default function TokensPage() {
                       <div className="font-bold text-teal-600 text-lg">{token.displayNumber}</div>
                     </td>
                     <td className="px-6 py-4">
-                      <div className="font-medium text-slate-900">{token.queueEntry.patient.firstName} {token.queueEntry.patient.lastName}</div>
-                      <div className="text-slate-500 text-xs mt-0.5">{token.queueEntry.patient.patientNumber}</div>
+                      <div className="font-medium text-slate-900">{token.queueEntry.patient ? `${token.queueEntry.patient.firstName} ${token.queueEntry.patient.lastName}` : 'Walk-in Customer'}</div>
+                      <div className="text-slate-500 text-xs mt-0.5">{token.queueEntry.patient?.patientNumber || '-'}</div>
                     </td>
                     <td className="px-6 py-4">
                       <div className="text-slate-900">{token.queueEntry.service.name}</div>
@@ -370,7 +370,7 @@ export default function TokensPage() {
               <div className="flex items-end gap-3">
                 <h2 className="text-2xl font-black text-slate-900 leading-none">{selected.displayNumber}</h2>
                 <div className="text-sm font-medium text-slate-600 pb-0.5">
-                  {selected.queueEntry.patient.firstName} {selected.queueEntry.patient.lastName}
+                  {selected.queueEntry.patient ? `${selected.queueEntry.patient.firstName} ${selected.queueEntry.patient.lastName}` : 'Walk-in Customer'}
                 </div>
               </div>
               <p className="text-xs text-slate-500 mt-2">

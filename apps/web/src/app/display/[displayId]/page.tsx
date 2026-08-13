@@ -282,6 +282,29 @@ export default function PublicDisplayPage({ params }: { params: Promise<{ displa
                   {c.next?.tokenLabel || '—'}
                 </p>
               </div>
+              <div className="flex-1 flex flex-col bg-white border-t-2 border-slate-100 min-h-0">
+                <div className="py-3 bg-slate-50 border-b border-slate-100 shrink-0">
+                  <p className="text-sm font-bold text-slate-500 tracking-widest uppercase">Waiting Queue</p>
+                </div>
+                <div className="flex-1 overflow-y-auto max-h-[250px] p-4 flex flex-col">
+                  {c.waitingTokens && c.waitingTokens.length > 0 ? (
+                    <div className="flex flex-col gap-2">
+                      {c.waitingTokens.map((wt, i) => (
+                        <div key={i} className="text-2xl font-bold text-[#041E42]">
+                          {wt.tokenLabel}
+                        </div>
+                      ))}
+                      <div className="mt-4 text-sm font-bold text-slate-400 uppercase tracking-widest border-t border-slate-100 pt-3">
+                        {c.waitingTokens.length} Waiting
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex-1 flex items-center justify-center text-slate-400 font-medium py-8">
+                      —
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           ))}
         </div>

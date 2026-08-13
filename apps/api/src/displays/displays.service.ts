@@ -156,7 +156,6 @@ export class DisplaysService {
     const waitingTokens = await this.prisma.token.findMany({
       where: { status: TokenStatus.WAITING, counterId: { not: null }, queueEntry: { status: 'WAITING', patient: { branchId: display.branchId }, service: { department: { branchId: display.branchId } } } },
       orderBy: [{ queueEntry: { priorityWeight: 'desc' } }, { businessDate: 'asc' }, { sequenceNumber: 'asc' }, { id: 'asc' }],
-      take: branchCounters.length * 5,
       select: this.publicTokenSelect,
     });
 
@@ -171,13 +170,24 @@ export class DisplaysService {
 
     const counters = branchCounters.map((counter) => {
       const nowToken = activeCountersTokens.find((t) => t.counterId === counter.id);
+      const nextToken = nextTokenMap.get(counter.id) || null;
+      
+      const counterWaiting = waitingTokens
+        .filter((t) => t.counterId === counter.id)
+        .map((t) => this.toPublicToken(t));
+        
+      const waitingTokensFiltered = counterWaiting.filter(
+        (t) => t.tokenLabel !== nextToken?.tokenLabel
+      );
+
       return {
         id: counter.id,
         name: counter.name,
         code: counter.code,
         counter: counter.name ?? counter.code ?? 'Counter',
         now: nowToken ? this.toPublicToken(nowToken) : null,
-        next: nextTokenMap.get(counter.id) || null,
+        next: nextToken,
+        waitingTokens: waitingTokensFiltered,
       };
     });
 

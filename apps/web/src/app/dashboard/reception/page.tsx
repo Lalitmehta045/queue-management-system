@@ -10,11 +10,10 @@ import { Input } from '../../../components/ui/Input';
 import { Select } from '../../../components/ui/Select';
 import { CardSkeleton } from '../../../components/ui/Skeleton';
 import { ErrorState } from '../../../components/ui/ErrorState';
-import { EmptyState } from '../../../components/ui/EmptyState';
 
 type PageState = 'loading' | 'ready' | 'error' | 'forbidden';
 type GeneratedToken = { id: string; displayNumber: string };
-type Step = 'customer' | 'service' | 'confirm' | 'success';
+type Step = 'form' | 'success';
 
 type ServiceWithDept = Service & { departmentId: string };
 type PriorityWithDept = PriorityConfig & { departmentId: string };
@@ -31,20 +30,18 @@ export default function ReceptionPage() {
 
   // Data
   const [patients, setPatients] = useState<Patient[]>([]);
-  // Removed departments since it's only used to fetch services/priorities
   const [allServices, setAllServices] = useState<ServiceWithDept[]>([]);
   const [allPriorities, setAllPriorities] = useState<PriorityWithDept[]>([]);
 
-  // Wizard State
-  const [step, setStep] = useState<Step>('customer');
-  const [patientMode, setPatientMode] = useState<'existing' | 'walkin'>('existing');
-  const [patientSearch, setPatientSearch] = useState('');
+  // Form State
+  const [step, setStep] = useState<Step>('form');
+  const [selectedServiceId, setSelectedServiceId] = useState<string>('');
+  const [priority, setPriority] = useState('NORMAL');
   
+  // Customer optional
+  const [patientMode, setPatientMode] = useState<'none' | 'existing' | 'new'>('none');
   const [selectedPatientId, setSelectedPatientId] = useState('');
   const [newPatientData, setNewPatientData] = useState({ firstName: '', lastName: '', phone: '' });
-  
-  const [selectedService, setSelectedService] = useState<ServiceWithDept | null>(null);
-  const [priority, setPriority] = useState('NORMAL');
 
   // UI State
   const [state, setState] = useState<PageState>('loading');
@@ -59,17 +56,9 @@ export default function ReceptionPage() {
     return () => { isMounted.current = false; };
   }, []);
 
-  const filteredPatients = useMemo(() => {
-    const active = patients.filter(p => p.status === 'ACTIVE');
-    if (!patientSearch.trim()) return active;
-    const q = patientSearch.toLowerCase();
-    return active.filter(p =>
-      p.firstName.toLowerCase().includes(q) ||
-      p.lastName.toLowerCase().includes(q) ||
-      p.patientNumber.toLowerCase().includes(q) ||
-      (p.phone && p.phone.includes(q))
-    );
-  }, [patients, patientSearch]);
+  const selectedService = useMemo(() => {
+    return allServices.find(s => s.id === selectedServiceId) || null;
+  }, [allServices, selectedServiceId]);
 
   const availablePrioritiesForSelectedService = useMemo(() => {
     if (!selectedService) return [];
@@ -152,10 +141,12 @@ export default function ReceptionPage() {
         const activePriorities = prsArray.flat().filter(p => p.active);
 
         if (isMounted.current) {
-          setPatients(patientList.data || []);
-          // Note: departments were fetched and mapped, but don't need to be saved to state.
+          setPatients((patientList.data || []).filter((p: Patient) => p.status === 'ACTIVE'));
           setAllServices(activeServices);
           setAllPriorities(activePriorities);
+          if (activeServices.length > 0) {
+            setSelectedServiceId(activeServices[0].id);
+          }
           setState('ready');
         }
       } catch {
@@ -178,33 +169,19 @@ export default function ReceptionPage() {
     setMessageType(type);
   }
 
-  function handleExistingCustomerSelect(id: string) {
-    setSelectedPatientId(id);
-    setStep('service');
-  }
-
-  function handleNewCustomerContinue() {
-    if (!newPatientData.firstName || !newPatientData.lastName) {
-      showMessage('First name and last name are required for new customers.');
-      return;
-    }
-    setMessage('');
-    setStep('service');
-  }
-  
-  function handleServiceSelect(service: ServiceWithDept) {
-    setSelectedService(service);
-    setStep('confirm');
-  }
-
   async function handleGenerateToken() {
     showMessage('');
     setIsSubmitting(true);
 
-    let targetPatientId = selectedPatientId;
-    let customerName = '';
+    let targetPatientId: string | null = null;
+    let customerName = 'Walk-in Customer';
 
-    if (patientMode === 'walkin') {
+    if (patientMode === 'new') {
+      if (!newPatientData.firstName || !newPatientData.lastName) {
+        showMessage('First name and last name are required for new customers.');
+        setIsSubmitting(false);
+        return;
+      }
       try {
         const response = await fetchWithAuth(`/api/branches/${branchId}/patients`, {
           method: 'POST',
@@ -225,13 +202,19 @@ export default function ReceptionPage() {
         setIsSubmitting(false);
         return;
       }
-    } else {
+    } else if (patientMode === 'existing') {
+      if (!selectedPatientId) {
+        showMessage('Please select an existing customer.');
+        setIsSubmitting(false);
+        return;
+      }
+      targetPatientId = selectedPatientId;
       const p = patients.find(p => p.id === selectedPatientId);
       if (p) customerName = `${p.firstName} ${p.lastName}`;
     }
 
-    if (!targetPatientId || !selectedService) {
-      showMessage('Please ensure a customer and service are selected.');
+    if (!selectedService) {
+      showMessage('Please select a service.');
       setIsSubmitting(false);
       return;
     }
@@ -239,10 +222,15 @@ export default function ReceptionPage() {
     try {
       const headers = { 'x-organization-id': organizationId };
 
+      const body: Record<string, string> = { serviceId: selectedService.id, priority };
+      if (targetPatientId) {
+        body.patientId = targetPatientId;
+      }
+
       const qResponse = await fetchWithAuth(`/api/branches/${branchId}/queue-entries`, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ patientId: targetPatientId, serviceId: selectedService.id, priority })
+        body: JSON.stringify(body)
       });
 
       if (qResponse.status === 403) { showMessage('Forbidden: You do not have permission.'); return; }
@@ -273,13 +261,11 @@ export default function ReceptionPage() {
   function handleReset() {
     setGeneratedToken(null);
     setSelectedPatientId('');
-    setPatientSearch('');
-    setPatientMode('existing');
-    setSelectedService(null);
+    setPatientMode('none');
     setMessage('');
     setNewPatientData({ firstName: '', lastName: '', phone: '' });
-    setPriority('NORMAL');
-    setStep('customer');
+    // Keep the service and priority as is for faster generation of next token
+    setStep('form');
   }
 
   function printTicket() {
@@ -304,18 +290,12 @@ export default function ReceptionPage() {
     );
   }
 
-  const getCustomerName = () => {
-    if (patientMode === 'walkin') return `${newPatientData.firstName} ${newPatientData.lastName}`;
-    const p = patients.find(p => p.id === selectedPatientId);
-    return p ? `${p.firstName} ${p.lastName}` : 'Unknown';
-  };
-
   return (
-    <div className="max-w-4xl mx-auto space-y-6 pb-12" style={systemFont}>
+    <div className="max-w-3xl mx-auto space-y-6 pb-12" style={systemFont}>
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">Reception</h1>
-          <p className="text-sm text-slate-500 mt-1 font-medium">Fast-track workflow for customer walk-ins and token generation.</p>
+          <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">Generate Token</h1>
+          <p className="text-sm text-slate-500 mt-1 font-medium">Fast-track workflow for walk-in token generation.</p>
         </div>
         {branches.length > 1 && (
           <div className="w-full sm:w-64">
@@ -336,170 +316,84 @@ export default function ReceptionPage() {
       {state === 'loading' && (
         <div className="space-y-6">
           <CardSkeleton />
-          <CardSkeleton />
         </div>
       )}
 
-      {state === 'ready' && step === 'customer' && (
-        <Card className="shadow-sm border-slate-200 rounded-2xl overflow-hidden">
-          <CardContent className="p-0">
-            <div className="bg-slate-50/50 p-6 border-b border-slate-100">
-              <h2 className="text-xl font-bold text-slate-800">Who is here?</h2>
-              <p className="text-sm text-slate-500 mt-1">Search for an existing customer or add a new one.</p>
-            </div>
+      {state === 'ready' && step === 'form' && (
+        <Card className="shadow-sm border-slate-200 rounded-2xl overflow-visible">
+          <CardContent className="p-8 space-y-8">
             
-            <div className="p-6">
-              <div className="flex bg-slate-100 p-1 rounded-lg w-full sm:w-max mb-6">
-                <button
-                  type="button"
-                  className={`flex-1 sm:flex-none px-6 py-2 text-sm font-bold rounded-md transition-all ${patientMode === 'existing' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                  onClick={() => setPatientMode('existing')}
-                >
-                  Existing Customer
-                </button>
-                <button
-                  type="button"
-                  className={`flex-1 sm:flex-none px-6 py-2 text-sm font-bold rounded-md transition-all ${patientMode === 'walkin' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                  onClick={() => setPatientMode('walkin')}
-                >
-                  New Customer
-                </button>
-              </div>
+            <div className="space-y-3">
+              <label className="block text-sm font-bold text-slate-700 uppercase tracking-wider">Service</label>
+              <Select 
+                value={selectedServiceId} 
+                onChange={(e) => setSelectedServiceId(e.target.value)}
+                className="w-full text-lg h-12 shadow-sm"
+              >
+                {allServices.length === 0 && <option value="">No services available</option>}
+                {allServices.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </Select>
+            </div>
 
-              {patientMode === 'existing' ? (
-                <div className="space-y-4">
-                  <Input
-                    placeholder="Search by name or phone..."
-                    value={patientSearch}
-                    onChange={(e) => setPatientSearch(e.target.value)}
-                    className="max-w-md bg-slate-50 border-slate-200"
-                  />
-                  <div className="mt-4 border border-slate-100 rounded-xl overflow-hidden shadow-sm">
-                    {filteredPatients.length === 0 ? (
-                      <EmptyState title="No customers found" description={patientSearch ? "Try a different search." : "Create a new customer to get started."} className="border-0 shadow-none" />
-                    ) : (
-                      <div className="max-h-96 overflow-y-auto divide-y divide-slate-50">
-                        {filteredPatients.slice(0, 10).map(p => (
-                          <button 
-                            key={p.id}
-                            onClick={() => handleExistingCustomerSelect(p.id)}
-                            className="w-full flex items-center justify-between p-4 bg-white hover:bg-slate-50 transition-colors text-left focus:outline-none focus:bg-slate-50"
-                          >
-                            <div>
-                              <div className="font-bold text-slate-800">{p.firstName} {p.lastName}</div>
-                              <div className="text-xs text-slate-500 mt-1 font-medium">{p.phone ? p.phone : 'No phone'} &bull; {p.patientNumber}</div>
-                            </div>
-                            <div className="text-teal-600">
-                              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                              </svg>
-                            </div>
-                          </button>
-                        ))}
-                        {filteredPatients.length > 10 && (
-                          <div className="p-3 text-center text-xs font-semibold text-slate-500 bg-slate-50">
-                            Showing top 10 results. Keep typing to refine.
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
+            {availablePrioritiesForSelectedService.length > 1 && (
+              <div className="space-y-3">
+                <label className="block text-sm font-bold text-slate-700 uppercase tracking-wider">Priority</label>
+                <Select 
+                  value={priority} 
+                  onChange={(e) => setPriority(e.target.value)}
+                  className="w-full text-lg h-12 shadow-sm"
+                >
+                  {availablePrioritiesForSelectedService.map(p => <option key={p.level} value={p.level}>{p.level.replace('_', ' ')}</option>)}
+                </Select>
+              </div>
+            )}
+
+            <div className="pt-4 border-t border-slate-100">
+              <div className="flex items-center justify-between mb-4">
+                <label className="block text-sm font-bold text-slate-700 uppercase tracking-wider">Customer <span className="text-slate-400 font-normal lowercase">(Optional)</span></label>
+                
+                <div className="flex space-x-2 bg-slate-100 p-1 rounded-md">
+                  <button type="button" onClick={() => setPatientMode('none')} className={`px-3 py-1 text-xs font-bold rounded ${patientMode === 'none' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}>None</button>
+                  <button type="button" onClick={() => setPatientMode('existing')} className={`px-3 py-1 text-xs font-bold rounded ${patientMode === 'existing' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}>Existing</button>
+                  <button type="button" onClick={() => setPatientMode('new')} className={`px-3 py-1 text-xs font-bold rounded ${patientMode === 'new' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}>New</button>
                 </div>
-              ) : (
-                <div className="max-w-md space-y-5">
-                  <Input label="First Name" value={newPatientData.firstName} onChange={e => setNewPatientData({ ...newPatientData, firstName: e.target.value })} />
-                  <Input label="Last Name" value={newPatientData.lastName} onChange={e => setNewPatientData({ ...newPatientData, lastName: e.target.value })} />
-                  <Input label="Phone (optional)" type="tel" value={newPatientData.phone} onChange={e => setNewPatientData({ ...newPatientData, phone: e.target.value })} />
-                  <div className="pt-2">
-                    <Button size="lg" className="w-full sm:w-auto shadow-md" onClick={handleNewCustomerContinue}>
-                      Continue
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {state === 'ready' && step === 'service' && (
-        <div className="space-y-6">
-          <button onClick={() => setStep('customer')} className="text-sm font-semibold text-slate-500 hover:text-slate-900 transition-colors flex items-center gap-1">
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
-            Back to Customer
-          </button>
-          
-          <div className="text-center py-6">
-            <h2 className="text-3xl font-extrabold text-slate-900 tracking-tight">What do you need today?</h2>
-            <p className="text-slate-500 mt-2 font-medium text-lg">For: {getCustomerName()}</p>
-          </div>
-
-          {allServices.length === 0 ? (
-            <EmptyState title="No services available" description="Ask your administrator to configure services." />
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-5">
-              {allServices.map(service => (
-                <button 
-                  key={service.id} 
-                  onClick={() => handleServiceSelect(service)}
-                  className="p-8 bg-white border border-slate-200 rounded-2xl hover:border-teal-500 hover:shadow-lg transition-all text-center flex flex-col items-center justify-center gap-3 focus:ring-4 focus:ring-teal-500/20 focus:outline-none group"
-                >
-                  <div className="w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center text-slate-400 group-hover:bg-teal-50 group-hover:text-teal-600 transition-colors">
-                    <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                    </svg>
-                  </div>
-                  <h3 className="text-xl font-bold text-slate-800">{service.name}</h3>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {state === 'ready' && step === 'confirm' && selectedService && (
-        <div className="space-y-6">
-          <button onClick={() => setStep('service')} className="text-sm font-semibold text-slate-500 hover:text-slate-900 transition-colors flex items-center gap-1">
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
-            Back to Services
-          </button>
-          
-          <Card className="max-w-md mx-auto shadow-lg border-slate-200 rounded-2xl overflow-hidden">
-            <div className="bg-slate-50 p-6 text-center border-b border-slate-100">
-              <h2 className="text-xl font-bold text-slate-800">Confirm Details</h2>
-            </div>
-            <CardContent className="p-8 space-y-6">
-              <div className="space-y-1">
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Customer</p>
-                <p className="text-lg font-bold text-slate-900">{getCustomerName()}</p>
               </div>
-              <div className="space-y-1">
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Service</p>
-                <p className="text-lg font-bold text-slate-900">{selectedService.name}</p>
-              </div>
-              
-              {availablePrioritiesForSelectedService.length > 1 && (
-                <div className="pt-2">
-                  <Select label="Priority" value={priority} onChange={(e) => setPriority(e.target.value)}>
-                    {availablePrioritiesForSelectedService.map(p => <option key={p.level} value={p.level}>{p.level.replace('_', ' ')}</option>)}
+
+              {patientMode === 'existing' && (
+                <div className="space-y-3 mt-4">
+                  <Select value={selectedPatientId} onChange={(e) => setSelectedPatientId(e.target.value)} className="w-full">
+                    <option value="">-- Select Customer --</option>
+                    {patients.map(p => (
+                      <option key={p.id} value={p.id}>{p.firstName} {p.lastName} {p.phone ? `(${p.phone})` : ''}</option>
+                    ))}
                   </Select>
                 </div>
               )}
 
-              <div className="pt-6">
-                <Button
-                  size="lg"
-                  className="w-full shadow-lg shadow-teal-600/20 text-lg font-bold h-14"
-                  onClick={() => void handleGenerateToken()}
-                  disabled={isSubmitting}
-                  isLoading={isSubmitting}
-                >
-                  {isSubmitting ? 'Generating token...' : 'Generate Token'}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+              {patientMode === 'new' && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+                  <Input label="First Name" value={newPatientData.firstName} onChange={e => setNewPatientData({ ...newPatientData, firstName: e.target.value })} />
+                  <Input label="Last Name" value={newPatientData.lastName} onChange={e => setNewPatientData({ ...newPatientData, lastName: e.target.value })} />
+                  <div className="sm:col-span-2">
+                    <Input label="Phone (optional)" type="tel" value={newPatientData.phone} onChange={e => setNewPatientData({ ...newPatientData, phone: e.target.value })} />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="pt-6">
+              <Button
+                size="lg"
+                className="w-full shadow-lg shadow-teal-600/20 text-lg font-bold h-14"
+                onClick={() => void handleGenerateToken()}
+                disabled={isSubmitting || !selectedServiceId}
+                isLoading={isSubmitting}
+              >
+                {isSubmitting ? 'Generating...' : 'GENERATE TOKEN'}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {state === 'ready' && step === 'success' && generatedToken && (
@@ -511,7 +405,9 @@ export default function ReceptionPage() {
             <div className="text-[6rem] font-black text-slate-900 leading-none tracking-tighter mb-6">
               {generatedToken.token.displayNumber}
             </div>
-            <p className="text-xl font-bold text-slate-800">{generatedToken.customerName}</p>
+            {generatedToken.customerName !== 'Walk-in Customer' && (
+              <p className="text-xl font-bold text-slate-800">{generatedToken.customerName}</p>
+            )}
             <p className="text-md font-semibold text-slate-500 mt-1">{generatedToken.serviceName}</p>
             
             <div className="w-12 h-1 bg-slate-200 rounded-full my-6"></div>
@@ -526,7 +422,7 @@ export default function ReceptionPage() {
                 Print Token
               </Button>
               <Button size="lg" variant="secondary" onClick={handleReset} className="w-full h-14 text-lg font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 border-0">
-                Create Another
+                Generate Another
               </Button>
             </div>
           </CardContent>
