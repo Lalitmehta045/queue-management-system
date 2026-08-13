@@ -19,26 +19,26 @@ export class QueueEntriesController {
 
   @Post()
   @Throttle({ default: { limit: 1000, ttl: 60000 } })
-  @Roles(Role.ORG_ADMIN, Role.BRANCH_ADMIN, Role.RECEPTIONIST, Role.COUNTER_OPERATOR)
+  @Roles(Role.ORG_ADMIN, Role.BRANCH_ADMIN, Role.RECEPTIONIST)
   create(@CurrentTenant() tenant: AuthenticatedRequest['tenant'], @CurrentUser() user: { userId: string }, @Req() request: AuthenticatedRequest, @Param('branchId') branchId: string, @Body() dto: CreateQueueEntryDto) {
     const requiredTenant = this.requireTenant(tenant);
     return this.queueEntriesService.create(requiredTenant, branchId, dto, getAuditContext(requiredTenant, user, request));
   }
 
   @Get()
-  @Roles(Role.ORG_ADMIN, Role.BRANCH_ADMIN, Role.RECEPTIONIST, Role.COUNTER_OPERATOR)
+  @Roles(Role.ORG_ADMIN, Role.BRANCH_ADMIN, Role.RECEPTIONIST)
   list(@CurrentTenant() tenant: AuthenticatedRequest['tenant'], @Param('branchId') branchId: string, @Query() query: ListQueueEntriesDto) {
     return this.queueEntriesService.list(this.requireTenant(tenant), branchId, query);
   }
 
   @Get(':queueEntryId')
-  @Roles(Role.ORG_ADMIN, Role.BRANCH_ADMIN, Role.RECEPTIONIST, Role.COUNTER_OPERATOR)
+  @Roles(Role.ORG_ADMIN, Role.BRANCH_ADMIN, Role.RECEPTIONIST)
   get(@CurrentTenant() tenant: AuthenticatedRequest['tenant'], @Param('branchId') branchId: string, @Param('queueEntryId') queueEntryId: string) {
     return this.queueEntriesService.get(this.requireTenant(tenant), branchId, queueEntryId);
   }
 
   @Post(':queueEntryId/cancel')
-  @Roles(Role.ORG_ADMIN, Role.BRANCH_ADMIN, Role.RECEPTIONIST, Role.COUNTER_OPERATOR)
+  @Roles(Role.ORG_ADMIN, Role.BRANCH_ADMIN, Role.RECEPTIONIST)
   cancel(@CurrentTenant() tenant: AuthenticatedRequest['tenant'], @CurrentUser() user: { userId: string }, @Req() request: AuthenticatedRequest, @Param('branchId') branchId: string, @Param('queueEntryId') queueEntryId: string) {
     const requiredTenant = this.requireTenant(tenant);
     return this.queueEntriesService.cancel(requiredTenant, branchId, queueEntryId, getAuditContext(requiredTenant, user, request));

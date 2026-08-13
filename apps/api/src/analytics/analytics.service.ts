@@ -167,7 +167,7 @@ export class AnalyticsService {
     const tokenWhere = this.buildTokenWhere(tenant.organizationId, branchId, query);
 
     const queueEntryWhere: Prisma.QueueEntryWhereInput = {
-      patient: { branchId, branch: { organizationId: tenant.organizationId } },
+      service: { department: { branchId, branch: { organizationId: tenant.organizationId } } },
     };
     if (query.serviceId) queueEntryWhere.serviceId = query.serviceId;
     if (query.departmentId) queueEntryWhere.service = { departmentId: query.departmentId };

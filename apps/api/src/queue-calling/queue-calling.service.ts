@@ -78,7 +78,7 @@ export class QueueCallingService {
   async callSpecific(tenant: Tenant, userId: string, branchId: string, counterId: string, tokenId: string, auditContext?: AuditContext) {
     const counter = await this.authorizeCounter(tenant, userId, branchId, counterId);
     if (!isUUID(tokenId)) throw new NotFoundException('Token not found');
-    const scopedToken = await this.prisma.token.findFirst({ where: { id: tokenId, queueEntry: { patient: { branchId, branch: { organizationId: tenant.organizationId } }, service: { department: { branchId, branch: { organizationId: tenant.organizationId } } } } }, select: { id: true } });
+    const scopedToken = await this.prisma.token.findFirst({ where: { id: tokenId, queueEntry: { service: { department: { branchId, branch: { organizationId: tenant.organizationId } } } } }, select: { id: true } });
     if (!scopedToken) throw new NotFoundException('Token not found');
     try {
       const token = await this.prisma.$transaction(async (tx) => {
@@ -230,7 +230,7 @@ export class QueueCallingService {
   }
 
   private async ensureCounterAvailable(tx: Prisma.TransactionClient, organizationId: string, branchId: string, counterId: string) {
-    const current = await tx.token.findFirst({ where: { counterId, status: { in: [TokenStatus.CALLED, TokenStatus.SERVING] }, queueEntry: { patient: { branchId, branch: { organizationId } } } }, select: { id: true } });
+    const current = await tx.token.findFirst({ where: { counterId, status: { in: [TokenStatus.CALLED, TokenStatus.SERVING] }, queueEntry: { service: { department: { branchId, branch: { organizationId } } } } }, select: { id: true } });
     if (current) throw new ConflictException('Counter already has an active token');
   }
 
@@ -239,7 +239,6 @@ export class QueueCallingService {
       status: TokenStatus.WAITING,
       queueEntry: {
         status: QueueEntryStatus.WAITING,
-        patient: { branchId, branch: { organizationId } },
         service: { department: { branchId, branch: { organizationId } } },
       },
     };
@@ -250,15 +249,15 @@ export class QueueCallingService {
   }
 
   private async findCurrent(organizationId: string, branchId: string, counterId: string) {
-    return this.prisma.token.findFirst({ where: { counterId, status: { in: [TokenStatus.CALLED, TokenStatus.SERVING] }, queueEntry: { patient: { branchId, branch: { organizationId } }, service: { department: { branchId, branch: { organizationId } } } } }, select: this.tokenSelect });
+    return this.prisma.token.findFirst({ where: { counterId, status: { in: [TokenStatus.CALLED, TokenStatus.SERVING] }, queueEntry: { service: { department: { branchId, branch: { organizationId } } } } }, select: this.tokenSelect });
   }
 
   private findCurrentInTransaction(tx: Prisma.TransactionClient, organizationId: string, branchId: string, counterId: string) {
-    return tx.token.findFirst({ where: { counterId, status: { in: [TokenStatus.CALLED, TokenStatus.SERVING] }, queueEntry: { patient: { branchId, branch: { organizationId } }, service: { department: { branchId, branch: { organizationId } } } } }, select: this.tokenSelect });
+    return tx.token.findFirst({ where: { counterId, status: { in: [TokenStatus.CALLED, TokenStatus.SERVING] }, queueEntry: { service: { department: { branchId, branch: { organizationId } } } } }, select: this.tokenSelect });
   }
 
   private getScopedToken(organizationId: string, branchId: string, tokenId: string) {
-    return this.prisma.token.findFirst({ where: { id: tokenId, queueEntry: { patient: { branchId, branch: { organizationId } }, service: { department: { branchId, branch: { organizationId } } } } }, select: this.tokenSelect });
+    return this.prisma.token.findFirst({ where: { id: tokenId, queueEntry: { service: { department: { branchId, branch: { organizationId } } } } }, select: this.tokenSelect });
   }
 
   private handleConcurrencyError(error: unknown): never {

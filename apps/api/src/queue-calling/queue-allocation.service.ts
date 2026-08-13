@@ -49,7 +49,7 @@ export class QueueAllocationService {
     const waitingTokens = await tx.token.findMany({
       where: {
         status: 'WAITING',
-        queueEntry: { patient: { branchId } }
+        queueEntry: { service: { department: { branchId } } }
       },
       select: { id: true },
       orderBy: [

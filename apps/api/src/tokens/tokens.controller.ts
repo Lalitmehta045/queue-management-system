@@ -19,7 +19,7 @@ export class TokensController {
 
   @Post('queue-entries/:queueEntryId/token')
   @Throttle({ default: { limit: 1000, ttl: 60000 } })
-  @Roles(Role.ORG_ADMIN, Role.BRANCH_ADMIN, Role.RECEPTIONIST, Role.COUNTER_OPERATOR)
+  @Roles(Role.ORG_ADMIN, Role.BRANCH_ADMIN, Role.RECEPTIONIST)
   generate(@CurrentTenant() tenant: AuthenticatedRequest['tenant'], @CurrentUser() user: { userId: string }, @Req() request: AuthenticatedRequest, @Param('branchId') branchId: string, @Param('queueEntryId') queueEntryId: string, @Body() dto: GenerateTokenDto) {
     void dto;
     const requiredTenant = this.requireTenant(tenant);
@@ -27,25 +27,25 @@ export class TokensController {
   }
 
   @Get('queue-entries/:queueEntryId/token')
-  @Roles(Role.ORG_ADMIN, Role.BRANCH_ADMIN, Role.RECEPTIONIST, Role.COUNTER_OPERATOR)
+  @Roles(Role.ORG_ADMIN, Role.BRANCH_ADMIN, Role.RECEPTIONIST)
   getForQueueEntry(@CurrentTenant() tenant: AuthenticatedRequest['tenant'], @Param('branchId') branchId: string, @Param('queueEntryId') queueEntryId: string) {
     return this.tokensService.getForQueueEntry(this.requireTenant(tenant), branchId, queueEntryId);
   }
 
   @Get('tokens')
-  @Roles(Role.ORG_ADMIN, Role.BRANCH_ADMIN, Role.RECEPTIONIST, Role.COUNTER_OPERATOR)
+  @Roles(Role.ORG_ADMIN, Role.BRANCH_ADMIN, Role.RECEPTIONIST)
   list(@CurrentTenant() tenant: AuthenticatedRequest['tenant'], @Param('branchId') branchId: string, @Query() query: ListTokensDto) {
     return this.tokensService.list(this.requireTenant(tenant), branchId, query);
   }
 
   @Get('tokens/:tokenId')
-  @Roles(Role.ORG_ADMIN, Role.BRANCH_ADMIN, Role.RECEPTIONIST, Role.COUNTER_OPERATOR)
+  @Roles(Role.ORG_ADMIN, Role.BRANCH_ADMIN, Role.RECEPTIONIST)
   get(@CurrentTenant() tenant: AuthenticatedRequest['tenant'], @Param('branchId') branchId: string, @Param('tokenId') tokenId: string) {
     return this.tokensService.get(this.requireTenant(tenant), branchId, tokenId);
   }
 
   @Post('tokens/:tokenId/cancel')
-  @Roles(Role.ORG_ADMIN, Role.BRANCH_ADMIN, Role.RECEPTIONIST, Role.COUNTER_OPERATOR)
+  @Roles(Role.ORG_ADMIN, Role.BRANCH_ADMIN, Role.RECEPTIONIST)
   cancel(@CurrentTenant() tenant: AuthenticatedRequest['tenant'], @CurrentUser() user: { userId: string }, @Req() request: AuthenticatedRequest, @Param('branchId') branchId: string, @Param('tokenId') tokenId: string) {
     const requiredTenant = this.requireTenant(tenant);
     return this.tokensService.cancel(requiredTenant, branchId, tokenId, getAuditContext(requiredTenant, user, request));

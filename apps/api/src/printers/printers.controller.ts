@@ -74,7 +74,7 @@ export class PrintersController {
   // 2. Admin route: List printers
   @Get('branches/:branchId/printers')
   @UseGuards(JwtAuthGuard, TenantGuard, FeatureGuard)
-  @Roles(Role.SUPER_ADMIN, Role.ORG_ADMIN, Role.BRANCH_ADMIN, Role.RECEPTIONIST, Role.COUNTER_OPERATOR)
+  @Roles(Role.SUPER_ADMIN, Role.ORG_ADMIN, Role.BRANCH_ADMIN, Role.RECEPTIONIST)
   @RequireFeature(FEATURES.THERMAL_PRINTING)
   async listPrinters(
     @CurrentTenant() tenant: TenantContext,
@@ -87,7 +87,7 @@ export class PrintersController {
   // 3. Admin route: Print Token Ticket
   @Post('branches/:branchId/printers/:printerId/print-token/:tokenId')
   @UseGuards(JwtAuthGuard, TenantGuard, FeatureGuard)
-  @Roles(Role.SUPER_ADMIN, Role.ORG_ADMIN, Role.BRANCH_ADMIN, Role.RECEPTIONIST, Role.COUNTER_OPERATOR)
+  @Roles(Role.SUPER_ADMIN, Role.ORG_ADMIN, Role.BRANCH_ADMIN, Role.RECEPTIONIST)
   @RequireFeature(FEATURES.THERMAL_PRINTING)
   async printTokenTicket(
     @CurrentTenant() tenant: TenantContext,

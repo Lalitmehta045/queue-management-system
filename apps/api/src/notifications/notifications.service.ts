@@ -168,7 +168,7 @@ export class NotificationsService {
   private async dispatchUnsafe(branchId: string, tokenId: string, eventType: NotificationEventType) {
     if (!isUUID(branchId) || !isUUID(tokenId)) return;
     const token = await this.prisma.token.findFirst({
-      where: { id: tokenId, queueEntry: { patient: { branchId } } },
+      where: { id: tokenId, queueEntry: { service: { department: { branchId } } } },
       select: {
         displayNumber: true,
         queueEntry: {

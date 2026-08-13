@@ -126,20 +126,20 @@ export class DisplaysService {
 
   private async buildPublicSnapshot(display: { name: string; branchId: string }) {
     const currentTokens = await this.prisma.token.findMany({
-      where: { status: { in: [TokenStatus.CALLED, TokenStatus.SERVING] }, counterId: { not: null }, queueEntry: { patient: { branchId: display.branchId }, service: { department: { branchId: display.branchId } } } },
+      where: { status: { in: [TokenStatus.CALLED, TokenStatus.SERVING] }, counterId: { not: null }, queueEntry: { service: { department: { branchId: display.branchId } } } },
       orderBy: [{ calledAt: 'desc' }, { id: 'desc' }],
       take: 1,
       select: this.publicTokenSelect,
     });
     const current = currentTokens[0] ? this.toPublicToken(currentTokens[0]) : null;
     const recentRows = await this.prisma.token.findMany({
-      where: { calledAt: { not: null }, queueEntry: { patient: { branchId: display.branchId }, service: { department: { branchId: display.branchId } } } },
+      where: { calledAt: { not: null }, queueEntry: { service: { department: { branchId: display.branchId } } } },
       orderBy: [{ calledAt: 'desc' }, { id: 'desc' }],
       take: 8,
       select: this.publicTokenSelect,
     });
     const recent = recentRows.filter((token) => token.id !== currentRowsId(currentTokens)).slice(0, 5).map((token) => this.toPublicToken(token));
-    const waitingTotal = await this.prisma.token.count({ where: { status: TokenStatus.WAITING, queueEntry: { status: 'WAITING', patient: { branchId: display.branchId }, service: { department: { branchId: display.branchId } } } } });
+    const waitingTotal = await this.prisma.token.count({ where: { status: TokenStatus.WAITING, queueEntry: { status: 'WAITING', service: { department: { branchId: display.branchId } } } } });
 
     const branchCounters = await this.prisma.counter.findMany({
       where: { branchId: display.branchId, status: CounterStatus.ACTIVE },
@@ -148,13 +148,13 @@ export class DisplaysService {
     });
     
     const activeCountersTokens = await this.prisma.token.findMany({
-      where: { status: { in: [TokenStatus.CALLED, TokenStatus.SERVING] }, counterId: { not: null }, queueEntry: { patient: { branchId: display.branchId }, service: { department: { branchId: display.branchId } } } },
+      where: { status: { in: [TokenStatus.CALLED, TokenStatus.SERVING] }, counterId: { not: null }, queueEntry: { service: { department: { branchId: display.branchId } } } },
       orderBy: [{ calledAt: 'desc' }, { id: 'desc' }],
       select: this.publicTokenSelect,
     });
     
     const waitingTokens = await this.prisma.token.findMany({
-      where: { status: TokenStatus.WAITING, counterId: { not: null }, queueEntry: { status: 'WAITING', patient: { branchId: display.branchId }, service: { department: { branchId: display.branchId } } } },
+      where: { status: TokenStatus.WAITING, counterId: { not: null }, queueEntry: { status: 'WAITING', service: { department: { branchId: display.branchId } } } },
       orderBy: [{ queueEntry: { priorityWeight: 'desc' } }, { businessDate: 'asc' }, { sequenceNumber: 'asc' }, { id: 'asc' }],
       select: this.publicTokenSelect,
     });

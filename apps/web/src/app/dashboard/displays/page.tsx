@@ -196,27 +196,27 @@ export default function DisplaysPage() {
               ) : (
                 <div className="divide-y divide-slate-100">
                   {displays.map((display) => (
-                    <div key={display.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-6 gap-4 hover:bg-slate-50 transition-colors">
-                      <div className="flex items-start gap-4">
+                    <div key={display.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-6 gap-4 hover:bg-slate-50 transition-colors overflow-hidden">
+                      <div className="flex items-start gap-4 min-w-0 flex-1">
                         <div className="w-10 h-10 rounded-lg bg-teal-50 text-teal-600 flex items-center justify-center text-xl shrink-0 mt-1">
                           📺
                         </div>
-                        <div>
-                          <div className="font-bold text-slate-900 text-lg flex items-center gap-2">
-                            {display.name}
-                            <Badge variant={display.active ? 'success' : 'neutral'}>
+                        <div className="min-w-0">
+                          <div className="font-bold text-slate-900 text-lg flex items-center gap-2 flex-wrap">
+                            <span className="truncate">{display.name}</span>
+                            <Badge variant={display.active ? 'success' : 'neutral'} className="shrink-0">
                               {display.active ? 'Active' : 'Inactive'}
                             </Badge>
                           </div>
                           <div className="text-sm font-medium text-slate-500 mt-1 flex items-center gap-2">
-                            <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded text-xs font-mono">
+                            <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded text-xs font-mono break-all">
                               {display.publicPath}
                             </span>
                           </div>
                         </div>
                       </div>
                       
-                      <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+                      <div className="flex items-center gap-2 self-end sm:self-auto shrink-0 mt-2 sm:mt-0">
                         <a 
                           href={display.publicPath} 
                           target="_blank" 

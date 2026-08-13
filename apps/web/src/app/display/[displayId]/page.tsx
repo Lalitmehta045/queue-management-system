@@ -71,6 +71,8 @@ export default function PublicDisplayPage({ params }: { params: Promise<{ displa
     
     const handleSnapshot = (eventType: (typeof displayEventTypes)[number]) => (event: MessageEvent<string>) => {
       const next = JSON.parse(event.data) as DisplaySnapshot;
+      console.log('--- SSE PAYLOAD RECEIVED ---', eventType);
+      console.log(JSON.stringify(next, null, 2));
       if (cancelled) return;
       
       setSnapshot((previous) => {
@@ -179,128 +181,145 @@ export default function PublicDisplayPage({ params }: { params: Promise<{ displa
   };
 
   return (
-    <div className="min-h-screen bg-white flex flex-col font-sans text-slate-900 overflow-hidden" onClick={enableAudio}>
+    <div className="min-h-screen bg-[#f8fafc] bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-indigo-50 via-white to-cyan-50 flex flex-col font-sans text-slate-900 overflow-hidden" onClick={enableAudio}>
       {/* HEADER */}
-      <header className="flex justify-between items-center px-8 py-5 border-b-4 border-teal-700 bg-white shrink-0 shadow-sm z-10">
+      <header className="flex justify-between items-center px-8 py-5 bg-gradient-to-r from-blue-900 via-indigo-900 to-purple-900 shrink-0 shadow-lg z-10 border-b border-white/10">
         <div className="flex items-center gap-4">
-          <div className="w-14 h-14 bg-teal-50 flex flex-col justify-end items-center rounded overflow-hidden pb-1 border-b-4 border-teal-200">
+          <div className="w-14 h-14 bg-white/10 backdrop-blur-md flex flex-col justify-end items-center rounded-xl overflow-hidden pb-1 border border-white/20 shadow-inner">
              <div className="flex space-x-1.5 mb-1.5">
-               <div className="w-2.5 h-2.5 rounded-full bg-teal-800"></div>
-               <div className="w-2.5 h-2.5 rounded-full bg-teal-800"></div>
-               <div className="w-2.5 h-2.5 rounded-full bg-teal-800"></div>
+               <div className="w-2.5 h-2.5 rounded-full bg-blue-300 shadow-[0_0_8px_rgba(147,197,253,0.8)]"></div>
+               <div className="w-2.5 h-2.5 rounded-full bg-purple-300 shadow-[0_0_8px_rgba(216,180,254,0.8)]"></div>
+               <div className="w-2.5 h-2.5 rounded-full bg-pink-300 shadow-[0_0_8px_rgba(249,168,212,0.8)]"></div>
              </div>
-             <div className="w-10 h-2.5 bg-teal-700/80 rounded-t-sm"></div>
+             <div className="w-10 h-2.5 bg-white/30 rounded-t-sm"></div>
           </div>
           <div className="flex flex-col">
-            <h1 className="text-[1.7rem] font-black text-[#041E42] tracking-tight leading-none uppercase">
+            <h1 className="text-[1.7rem] font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-100 to-purple-200 tracking-tight leading-none uppercase drop-shadow-sm">
               {display.name || 'SMARTQUEUE'}
             </h1>
-            <p className="text-[0.75rem] font-bold text-teal-600 tracking-[0.2em] mt-1 uppercase">
+            <p className="text-[0.75rem] font-bold text-blue-300 tracking-[0.2em] mt-1 uppercase">
               Queue Management System
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-6 text-xl font-bold text-[#041E42]">
-          <div className="flex items-center gap-3">
-            <svg className="w-7 h-7 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-            <span suppressHydrationWarning>{formattedDate}</span>
+        <div className="flex items-center gap-6 text-xl font-bold text-white/90">
+          <div className="flex items-center gap-3 bg-white/5 px-4 py-2 rounded-lg border border-white/10 backdrop-blur-sm shadow-inner">
+            <svg className="w-6 h-6 text-blue-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+            <span suppressHydrationWarning className="tracking-wide">{formattedDate}</span>
           </div>
-          <div className="h-8 w-px bg-slate-300"></div>
-          <div className="flex items-center gap-3 w-36">
-            <svg className="w-7 h-7 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-            <span suppressHydrationWarning>{formattedTime}</span>
+          <div className="flex items-center gap-3 w-40 bg-white/5 px-4 py-2 rounded-lg border border-white/10 backdrop-blur-sm shadow-inner justify-center">
+            <svg className="w-6 h-6 text-purple-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            <span suppressHydrationWarning className="tracking-wider">{formattedTime}</span>
           </div>
         </div>
       </header>
 
       {/* NOW SERVING AREA */}
-      <section className="flex-1 flex px-10 py-6 min-h-[300px] border-b border-slate-100">
-        <div className="w-1/4 flex flex-col items-center justify-center text-center border-r border-slate-100 pr-8">
-          <div className={`p-6 rounded-full mb-4 ${announcementSettings.enabled ? 'text-teal-700' : 'text-slate-400'}`}>
+      <section className="flex-1 flex px-10 py-8 min-h-[300px] border-b border-indigo-100/50 bg-white/40 backdrop-blur-xl shadow-[0_4px_30px_rgba(0,0,0,0.02)]">
+        <div className="w-1/4 flex flex-col items-center justify-center text-center border-r border-indigo-100/50 pr-8">
+          <div className={`p-6 rounded-3xl mb-4 transition-all duration-500 shadow-lg ${announcementSettings.enabled ? 'bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-blue-500/30' : 'bg-slate-100 text-slate-400 shadow-slate-200/50'}`}>
             {announcementSettings.enabled ? (
-              <svg className="w-24 h-24 drop-shadow-sm" fill="currentColor" viewBox="0 0 24 24"><path d="M13 5v14l-5-4H3V9h5l5-4zm2.5 7c0-1.7-.9-3.2-2.3-4l-.7 1.4c1 1.6.3 3.6-1.3 4.6l.7 1.4c1.8-1 3-2.9 3-3.4zM18 12c0-3.3-1.8-6.2-4.5-7.7l-.8 1.4c2.1 1.2 3.5 3.5 3.5 6s-1.4 4.8-3.5 6l.8 1.4C16.2 17.6 18 14.8 18 12z"/></svg>
+              <svg className="w-20 h-20 drop-shadow-md" fill="currentColor" viewBox="0 0 24 24"><path d="M13 5v14l-5-4H3V9h5l5-4zm2.5 7c0-1.7-.9-3.2-2.3-4l-.7 1.4c1 1.6.3 3.6-1.3 4.6l.7 1.4c1.8-1 3-2.9 3-3.4zM18 12c0-3.3-1.8-6.2-4.5-7.7l-.8 1.4c2.1 1.2 3.5 3.5 3.5 6s-1.4 4.8-3.5 6l.8 1.4C16.2 17.6 18 14.8 18 12z"/></svg>
             ) : (
-              <svg className="w-24 h-24 drop-shadow-sm" fill="currentColor" viewBox="0 0 24 24"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>
+              <svg className="w-20 h-20 drop-shadow-sm" fill="currentColor" viewBox="0 0 24 24"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>
             )}
           </div>
-          <h3 className="font-bold text-[#041E42] text-xl">Audio Announcement</h3>
-          <p className={`font-bold text-lg mt-1 ${announcementSettings.enabled ? 'text-teal-600' : 'text-slate-400'}`}>
+          <h3 className="font-extrabold text-slate-800 text-xl tracking-tight">Audio Announcement</h3>
+          <p className={`font-bold text-lg mt-2 px-4 py-1 rounded-full ${announcementSettings.enabled ? 'bg-blue-100 text-blue-700' : 'bg-slate-200 text-slate-500'}`}>
             {voiceUnavailable ? 'Unavailable' : announcementSettings.enabled ? 'Active' : 'Muted'}
           </p>
         </div>
 
         <div className="w-1/2 flex flex-col items-center justify-center px-10 relative">
-          <h2 className="text-3xl font-extrabold text-teal-700 uppercase tracking-widest mb-2 z-10">Now Serving</h2>
-          <div className="flex items-center justify-center my-4 h-[180px]">
-            <span className={`text-[12rem] leading-none font-black text-[#041E42] tracking-tighter transition-all duration-300 ${lastToken === current?.tokenLabel ? 'scale-110 text-teal-600' : ''}`}>
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-blue-100/40 via-transparent to-transparent blur-xl pointer-events-none"></div>
+          <h2 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600 uppercase tracking-[0.3em] mb-2 z-10 drop-shadow-sm">Now Serving</h2>
+          <div className="flex items-center justify-center my-4 h-[180px] z-10">
+            <span className={`text-[12rem] leading-none font-black tracking-tighter transition-all duration-500 ${lastToken === current?.tokenLabel ? 'scale-110 text-transparent bg-clip-text bg-gradient-to-br from-indigo-500 via-purple-600 to-pink-500 drop-shadow-2xl' : 'text-slate-800 drop-shadow-lg'}`}>
               {current?.tokenLabel || '—'}
             </span>
           </div>
           {current?.counter && (
-            <div className="bg-teal-700 text-white text-3xl font-bold uppercase tracking-widest px-10 py-3 rounded-lg shadow-sm z-10">
+            <div className="bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 text-white text-3xl font-black uppercase tracking-widest px-12 py-4 rounded-2xl shadow-[0_8px_30px_rgb(79,70,229,0.3)] z-10 border border-white/20 transform transition-transform hover:scale-105">
               {current.counter}
             </div>
           )}
         </div>
 
-        <div className="w-1/4 flex flex-col items-center justify-center border-l border-slate-100 pl-8">
-           <svg className="w-full max-w-[220px] text-teal-800 opacity-90 drop-shadow-sm" viewBox="0 0 100 80" fill="currentColor">
-              <circle cx="25" cy="30" r="7" />
-              <circle cx="50" cy="25" r="7" />
-              <circle cx="75" cy="30" r="7" />
-              <path d="M15 50 Q25 38 35 50 Z" />
-              <path d="M40 45 Q50 33 60 45 Z" />
-              <path d="M65 50 Q75 38 85 50 Z" />
-              <rect x="5" y="50" width="90" height="12" rx="2" className="text-teal-200" />
-              <rect x="0" y="62" width="100" height="4" rx="1" />
+        <div className="w-1/4 flex flex-col items-center justify-center border-l border-indigo-100/50 pl-8 relative">
+           <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-pink-100/40 via-transparent to-transparent blur-xl pointer-events-none"></div>
+           <svg className="w-full max-w-[220px] drop-shadow-xl z-10" viewBox="0 0 100 80" fill="none">
+              <defs>
+                <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#4f46e5" />
+                  <stop offset="100%" stopColor="#ec4899" />
+                </linearGradient>
+                <linearGradient id="grad2" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stopColor="#3b82f6" />
+                  <stop offset="100%" stopColor="#8b5cf6" />
+                </linearGradient>
+              </defs>
+              <circle cx="25" cy="30" r="7" fill="url(#grad1)" opacity="0.9" />
+              <circle cx="50" cy="25" r="7" fill="url(#grad1)" opacity="0.7" />
+              <circle cx="75" cy="30" r="7" fill="url(#grad1)" opacity="0.9" />
+              <path d="M15 50 Q25 38 35 50 Z" fill="url(#grad2)" opacity="0.8" />
+              <path d="M40 45 Q50 33 60 45 Z" fill="url(#grad2)" opacity="0.6" />
+              <path d="M65 50 Q75 38 85 50 Z" fill="url(#grad2)" opacity="0.8" />
+              <rect x="5" y="50" width="90" height="12" rx="4" fill="url(#grad2)" />
+              <rect x="0" y="62" width="100" height="4" rx="2" fill="#e2e8f0" />
               
-              <path d="M85 70 Q90 60 88 50 Q92 52 95 65 Z" />
-              <path d="M85 70 Q80 60 82 50 Q78 52 75 65 Z" />
-              <rect x="83" y="66" width="4" height="14" rx="1" className="text-teal-900" />
+              <path d="M85 70 Q90 60 88 50 Q92 52 95 65 Z" fill="url(#grad1)" opacity="0.8" />
+              <path d="M85 70 Q80 60 82 50 Q78 52 75 65 Z" fill="url(#grad1)" opacity="0.6" />
+              <rect x="83" y="66" width="4" height="14" rx="2" fill="#312e81" />
            </svg>
         </div>
       </section>
 
       {/* COUNTER GRID */}
-      <section className="bg-slate-50 shrink-0 border-b-4 border-slate-200 overflow-x-auto">
-        <div className="flex w-full h-full min-w-min">
+      <section className="bg-transparent shrink-0 overflow-x-auto p-6">
+        <div className="flex w-full h-full min-w-min gap-6">
           {counters.map((c, idx) => (
-            <div key={c.id || idx} className={`flex-1 min-w-[250px] flex flex-col text-center bg-white ${idx < counters.length - 1 ? 'border-r-2 border-slate-200' : ''}`}>
-              <div className="py-4 flex flex-col items-center justify-center border-b-2 border-slate-100 bg-white shadow-sm">
-                <h3 className="font-bold text-[#041E42] text-sm uppercase tracking-wider">{c.name || 'Counter'}</h3>
-                <span className="font-extrabold text-[#041E42] text-lg uppercase tracking-widest mt-0.5">{c.code || c.counter}</span>
+            <div key={c.id || idx} className="flex-1 min-w-[280px] flex flex-col bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-100 overflow-hidden transform transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_8px_40px_rgb(79,70,229,0.12)]">
+              <div className="py-5 flex flex-col items-center justify-center bg-gradient-to-r from-slate-50 to-indigo-50/30 border-b border-indigo-50 relative overflow-hidden">
+                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-400 via-indigo-500 to-purple-500"></div>
+                <h3 className="font-bold text-slate-500 text-xs uppercase tracking-[0.2em]">{c.name || 'Counter'}</h3>
+                <span className="font-black text-slate-800 text-2xl uppercase tracking-widest mt-1">{c.code || c.counter}</span>
               </div>
-              <div className="py-8 flex flex-col justify-center border-b-2 border-slate-100 min-h-[160px]">
-                <p className="text-sm font-bold text-[#041E42] tracking-widest uppercase mb-2">Now Serving</p>
-                <p className="text-7xl font-black text-[#041E42]">
+              <div className="py-8 flex flex-col items-center justify-center min-h-[160px] relative">
+                <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-blue-50/50 via-transparent to-transparent opacity-50"></div>
+                <p className="text-xs font-bold text-blue-600 tracking-[0.2em] uppercase mb-3 z-10 bg-blue-50 px-3 py-1 rounded-full border border-blue-100">Now Serving</p>
+                <p className="text-7xl font-black text-transparent bg-clip-text bg-gradient-to-br from-slate-800 to-slate-600 drop-shadow-sm z-10">
                   {c.now?.tokenLabel || '—'}
                 </p>
               </div>
-              <div className="py-6 bg-slate-50 flex flex-col justify-center min-h-[120px]">
-                <p className="text-sm font-bold text-slate-500 tracking-widest uppercase mb-1">Next</p>
-                <p className="text-5xl font-extrabold text-teal-700">
+              <div className="py-6 flex flex-col items-center justify-center min-h-[120px] bg-slate-50/80 border-y border-slate-100">
+                <p className="text-xs font-bold text-purple-600 tracking-[0.2em] uppercase mb-2">Next</p>
+                <p className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-pink-500">
                   {c.next?.tokenLabel || '—'}
                 </p>
               </div>
-              <div className="flex-1 flex flex-col bg-white border-t-2 border-slate-100 min-h-0">
-                <div className="py-3 bg-slate-50 border-b border-slate-100 shrink-0">
-                  <p className="text-sm font-bold text-slate-500 tracking-widest uppercase">Waiting Queue</p>
+              <div className="flex-1 flex flex-col bg-white min-h-0">
+                <div className="py-4 bg-slate-50/50 border-b border-slate-100 shrink-0 flex justify-center items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-slate-300"></div>
+                  <p className="text-xs font-bold text-slate-500 tracking-[0.2em] uppercase">Waiting Queue</p>
+                  <div className="w-2 h-2 rounded-full bg-slate-300"></div>
                 </div>
-                <div className="flex-1 overflow-y-auto max-h-[250px] p-4 flex flex-col">
+                <div className="flex-1 overflow-y-auto max-h-[200px] p-5 flex flex-col items-center">
                   {c.waitingTokens && c.waitingTokens.length > 0 ? (
-                    <div className="flex flex-col gap-2">
+                    <div className="flex flex-col gap-3 w-full items-center">
                       {c.waitingTokens.map((wt, i) => (
-                        <div key={i} className="text-2xl font-bold text-[#041E42]">
+                        <div key={i} className="text-xl font-bold text-slate-700 bg-slate-50 w-full text-center py-2 rounded-xl border border-slate-100 shadow-sm">
                           {wt.tokenLabel}
                         </div>
                       ))}
-                      <div className="mt-4 text-sm font-bold text-slate-400 uppercase tracking-widest border-t border-slate-100 pt-3">
-                        {c.waitingTokens.length} Waiting
+                      <div className="mt-2 w-full">
+                        <div className="text-xs font-bold text-white uppercase tracking-widest bg-gradient-to-r from-slate-700 to-slate-600 py-2 rounded-lg text-center shadow-md">
+                          {c.waitingTokens.length} Waiting
+                        </div>
                       </div>
                     </div>
                   ) : (
-                    <div className="flex-1 flex items-center justify-center text-slate-400 font-medium py-8">
-                      —
+                    <div className="flex-1 flex items-center justify-center text-slate-300 font-medium py-8 text-sm uppercase tracking-wider">
+                      No waiting tokens
                     </div>
                   )}
                 </div>
@@ -311,15 +330,14 @@ export default function PublicDisplayPage({ params }: { params: Promise<{ displa
       </section>
 
       {/* FOOTER & LEGEND */}
-      <footer className="shrink-0 bg-slate-100 flex flex-col">
-        <div className="bg-[#041E42] text-white py-4 px-6 flex items-center justify-center gap-3 shadow-md">
-          <svg className="w-8 h-8 opacity-90" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-          <span className="text-3xl font-extrabold tracking-widest uppercase mt-0.5">
+      <footer className="shrink-0 flex flex-col mt-auto pb-6 px-6">
+        <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-purple-900 text-white py-5 px-8 flex items-center justify-center gap-4 shadow-2xl rounded-2xl border border-white/10 relative overflow-hidden">
+          <div className="absolute inset-0 bg-[linear-gradient(45deg,transparent_25%,rgba(255,255,255,0.1)_50%,transparent_75%,transparent_100%)] bg-[length:250px_250px] animate-[gradient_3s_linear_infinite]"></div>
+          <svg className="w-10 h-10 text-blue-300 z-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+          <span className="text-3xl font-black tracking-[0.15em] uppercase z-10 drop-shadow-md bg-clip-text text-transparent bg-gradient-to-r from-white to-blue-100">
             Thank you. Please wait for your turn.
           </span>
         </div>
-
-
       </footer>
     </div>
   );

@@ -86,7 +86,7 @@ describe('Queue entries (e2e)', () => {
     await prisma.membership.create({ data: { userId: branchAdmin.id, organizationId: orgA, branchId: branchA1, role: Role.BRANCH_ADMIN, status: MembershipStatus.ACTIVE } });
     branchAdminId = branchAdmin.id;
     const userB_id = (await prisma.user.findUniqueOrThrow({ where: { email: 'phase3b-b@example.com' } })).id;
-    await prisma.membership.create({ data: { userId: userB_id, organizationId: orgA, branchId: branchA1, role: Role.COUNTER_OPERATOR, status: MembershipStatus.ACTIVE } });
+    await prisma.membership.create({ data: { userId: userB_id, organizationId: orgA, branchId: branchA1, role: Role.RECEPTIONIST, status: MembershipStatus.ACTIVE } });
 
 
     patientA1 = await createPatient(tokenA, orgA, branchA1, 'Patient A1');
