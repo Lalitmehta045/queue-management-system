@@ -22,7 +22,6 @@ export class TicketPrintService {
       where: {
         id: tokenId,
         queueEntry: {
-          patient: { branchId, branch: { organizationId: tenant.organizationId } },
           service: { department: { branchId, branch: { organizationId: tenant.organizationId } } },
         },
       },

@@ -108,6 +108,13 @@ describe('Notifications (e2e)', () => {
     return { queueEntryId, token: token.body as TokenResponse };
   }
 
+  async function createWalkInToken(accessToken: string, organizationId: string, branchId: string, serviceId: string) {
+    const queue = await tenantRequest(accessToken, organizationId).post(`/branches/${branchId}/queue-entries`).send({ serviceId }).expect(201);
+    const queueEntryId = (queue.body as { id: string }).id;
+    const token = await tenantRequest(accessToken, organizationId).post(`/branches/${branchId}/queue-entries/${queueEntryId}/token`).send({}).expect(201);
+    return { queueEntryId, token: token.body as TokenResponse };
+  }
+
   async function waitForNotification(tokenId: string, eventType: NotificationEventType, predicate: (record: NotificationRow) => boolean, timeoutMs = 6_000) {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
@@ -316,6 +323,13 @@ describe('Notifications (e2e)', () => {
     expect(JSON.stringify(body)).not.toContain('Print Me');
     expect((body as { patient?: unknown }).patient).toBeUndefined();
     expect(JSON.stringify(body)).not.toContain('"phone"');
+
+    const walkIn = await createWalkInToken(adminToken, orgA, branchA1, serviceA1);
+    const walkInTicket = await tenantRequest(adminToken, orgA).post(`/branches/${branchA1}/tokens/${walkIn.token.id}/print`).send({}).expect(201);
+    expect(walkInTicket.body).toMatchObject({
+      branch: { name: 'Phase 7 A1', code: 'P7A1' },
+      token: { displayNumber: walkIn.token.displayNumber },
+    });
 
     await tenantRequest(receptionistToken, orgA).post(`/branches/${branchA1}/tokens/${printable.token.id}/print`).send({}).expect(201);
     await tenantRequest(branchAdminToken, orgA).post(`/branches/${branchA1}/tokens/${printable.token.id}/print`).send({}).expect(201);
