@@ -74,7 +74,7 @@ export class PrintersController {
   // 2. Admin route: List printers
   @Get('branches/:branchId/printers')
   @UseGuards(JwtAuthGuard, TenantGuard, FeatureGuard)
-  @Roles(Role.SUPER_ADMIN, Role.ORG_ADMIN, Role.BRANCH_ADMIN, Role.RECEPTIONIST)
+  @Roles(Role.SUPER_ADMIN, Role.ORG_ADMIN, Role.BRANCH_ADMIN, Role.RECEPTIONIST, Role.COUNTER_OPERATOR)
   @RequireFeature(FEATURES.THERMAL_PRINTING)
   async listPrinters(
     @CurrentTenant() tenant: TenantContext,

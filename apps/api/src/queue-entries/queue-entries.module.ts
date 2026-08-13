@@ -7,5 +7,6 @@ import { QueueEntriesService } from './queue-entries.service';
   imports: [DisplaysModule],
   controllers: [QueueEntriesController],
   providers: [QueueEntriesService],
+  exports: [QueueEntriesService],
 })
 export class QueueEntriesModule {}

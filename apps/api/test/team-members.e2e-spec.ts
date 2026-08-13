@@ -131,4 +131,160 @@ describe('Team members (e2e)', () => {
     await tenantRequest(adminToken, orgId).post(`/organizations/current/team-members/${memberId}/deactivate`).expect(201);
     await tenantRequest(adminToken, orgId).post(`/branches/${branchId}/counters/${counterId}/operators`).send({ userId }).expect(403);
   });
+
+  describe('password update', () => {
+    let staffMembershipId: string;
+    let staffEmail: string;
+
+    beforeAll(async () => {
+      staffEmail = 'pw-update-staff@example.com';
+      const response = await tenantRequest(adminToken, orgId)
+        .post('/organizations/current/team-members')
+        .send({
+          displayName: 'Password Update Staff',
+          email: staffEmail,
+          role: 'RECEPTIONIST',
+          branchId,
+        })
+        .expect(201);
+      staffMembershipId = (response.body as { member: { id: string } }).member.id;
+    });
+
+    it('admin can update a team member password', async () => {
+      await tenantRequest(adminToken, orgId)
+        .patch(`/organizations/current/team-members/${staffMembershipId}/password`)
+        .send({ newPassword: 'newSecure123' })
+        .expect(200);
+    });
+
+    it('new password is hashed before persistence', async () => {
+      await tenantRequest(adminToken, orgId)
+        .patch(`/organizations/current/team-members/${staffMembershipId}/password`)
+        .send({ newPassword: 'hashedCheck1' })
+        .expect(200);
+
+      const membership = await prisma.membership.findUniqueOrThrow({
+        where: { id: staffMembershipId },
+        select: { userId: true },
+      });
+      const user = await prisma.user.findUniqueOrThrow({
+        where: { id: membership.userId },
+        select: { passwordHash: true },
+      });
+      expect(user.passwordHash).toBeDefined();
+      expect(user.passwordHash).not.toBe('hashedCheck1');
+    });
+
+    it('existing plaintext password cannot be retrieved via API', async () => {
+      const listResponse = await tenantRequest(adminToken, orgId)
+        .get('/organizations/current/team-members')
+        .expect(200);
+      const members = listResponse.body as Array<{ email: string; passwordHash?: string }>;
+      const staff = members.find((m) => m.email === staffEmail);
+      expect(staff).toBeDefined();
+      expect(staff?.passwordHash).toBeUndefined();
+    });
+
+    it('unauthorized user cannot update another user password', async () => {
+      // otherToken is an ORG_ADMIN of a different org
+      await tenantRequest(otherToken, otherOrgId)
+        .patch(`/organizations/current/team-members/${staffMembershipId}/password`)
+        .send({ newPassword: 'hackerPass1' })
+        .expect(404);
+    });
+
+    it('cross-organization password update is rejected', async () => {
+      // Try using otherToken against the admin's orgId
+      await request(server)
+        .patch(`/organizations/current/team-members/${staffMembershipId}/password`)
+        .set('Authorization', `Bearer ${otherToken}`)
+        .set('x-organization-id', orgId)
+        .send({ newPassword: 'crossOrg123' })
+        .expect(403);
+    });
+
+    it('user role/branch/counter assignment remain unchanged after password update', async () => {
+      const beforeResponse = await tenantRequest(adminToken, orgId)
+        .get('/organizations/current/team-members')
+        .expect(200);
+      const before = (beforeResponse.body as Array<{ id: string; role: string; branchId: string; status: string; counterAssignment: unknown }>)
+        .find((m) => m.id === staffMembershipId);
+
+      await tenantRequest(adminToken, orgId)
+        .patch(`/organizations/current/team-members/${staffMembershipId}/password`)
+        .send({ newPassword: 'unchanged1' })
+        .expect(200);
+
+      const afterResponse = await tenantRequest(adminToken, orgId)
+        .get('/organizations/current/team-members')
+        .expect(200);
+      const after = (afterResponse.body as Array<{ id: string; role: string; branchId: string; status: string; counterAssignment: unknown }>)
+        .find((m) => m.id === staffMembershipId);
+
+      expect(after?.role).toBe(before?.role);
+      expect(after?.branchId).toBe(before?.branchId);
+      expect(after?.status).toBe(before?.status);
+      expect(after?.counterAssignment).toEqual(before?.counterAssignment);
+    });
+
+    it('new password works for login', async () => {
+      const newPw = 'loginWorks1';
+      await tenantRequest(adminToken, orgId)
+        .patch(`/organizations/current/team-members/${staffMembershipId}/password`)
+        .send({ newPassword: newPw })
+        .expect(200);
+
+      await request(server)
+        .post('/auth/login')
+        .send({ email: staffEmail, password: newPw })
+        .expect(200);
+    });
+
+    it('old password no longer works after update', async () => {
+      const oldPw = 'oldPassword1';
+      const newPw = 'newPassword1';
+
+      await tenantRequest(adminToken, orgId)
+        .patch(`/organizations/current/team-members/${staffMembershipId}/password`)
+        .send({ newPassword: oldPw })
+        .expect(200);
+
+      await tenantRequest(adminToken, orgId)
+        .patch(`/organizations/current/team-members/${staffMembershipId}/password`)
+        .send({ newPassword: newPw })
+        .expect(200);
+
+      await request(server)
+        .post('/auth/login')
+        .send({ email: staffEmail, password: oldPw })
+        .expect(401);
+    });
+
+    it('password/hash is never included in API responses', async () => {
+      const updateResponse = await tenantRequest(adminToken, orgId)
+        .patch(`/organizations/current/team-members/${staffMembershipId}/password`)
+        .send({ newPassword: 'noLeakPw12' })
+        .expect(200);
+
+      const updateBody = updateResponse.body as Record<string, unknown>;
+      expect(updateBody.password).toBeUndefined();
+      expect(updateBody.passwordHash).toBeUndefined();
+      expect(updateBody.newPassword).toBeUndefined();
+
+      const listResponse = await tenantRequest(adminToken, orgId)
+        .get('/organizations/current/team-members')
+        .expect(200);
+      for (const member of listResponse.body as Array<Record<string, unknown>>) {
+        expect(member.password).toBeUndefined();
+        expect(member.passwordHash).toBeUndefined();
+      }
+    });
+
+    it('rejects password shorter than 8 characters', async () => {
+      await tenantRequest(adminToken, orgId)
+        .patch(`/organizations/current/team-members/${staffMembershipId}/password`)
+        .send({ newPassword: 'short' })
+        .expect(400);
+    });
+  });
 });

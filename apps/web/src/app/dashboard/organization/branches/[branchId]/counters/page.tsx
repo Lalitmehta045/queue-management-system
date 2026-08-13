@@ -2,15 +2,15 @@
 
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { Badge } from '../../../../../components/ui/Badge';
-import { Button } from '../../../../../components/ui/Button';
-import { Card, CardContent, CardHeader, CardTitle } from '../../../../../components/ui/Card';
-import { EmptyState } from '../../../../../components/ui/EmptyState';
-import { ErrorState } from '../../../../../components/ui/ErrorState';
-import { Input } from '../../../../../components/ui/Input';
-import { Select } from '../../../../../components/ui/Select';
-import { Skeleton } from '../../../../../components/ui/Skeleton';
-import { fetchWithAuth } from '../../../../../lib/auth-client';
+import { Badge } from '../../../../../../components/ui/Badge';
+import { Button } from '../../../../../../components/ui/Button';
+import { Card, CardContent, CardHeader, CardTitle } from '../../../../../../components/ui/Card';
+import { EmptyState } from '../../../../../../components/ui/EmptyState';
+import { ErrorState } from '../../../../../../components/ui/ErrorState';
+import { Input } from '../../../../../../components/ui/Input';
+import { Select } from '../../../../../../components/ui/Select';
+import { Skeleton } from '../../../../../../components/ui/Skeleton';
+import { fetchWithAuth } from '../../../../../../lib/auth-client';
 
 type Counter = { id: string; name: string; code: string; status: 'ACTIVE' | 'INACTIVE' };
 type Operator = { id: string; displayName: string; email: string };
@@ -126,7 +126,7 @@ export default function CountersPage() {
         <nav className="flex flex-wrap gap-3 text-sm font-semibold text-slate-500">
           <a className="hover:text-slate-900" href="/dashboard">Dashboard</a>
           <span>/</span>
-          <a className="hover:text-slate-900" href="/organization/branches">Branches</a>
+          <a className="hover:text-slate-900" href="/dashboard/organization/branches">Branches</a>
           <span>/</span>
           <span className="text-slate-900">Counters</span>
         </nav>

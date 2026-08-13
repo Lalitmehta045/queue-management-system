@@ -11,7 +11,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { NotificationProviderToken } from '../src/notifications/notification-providers';
 import type { NotificationProvider, ProviderResult } from '../src/notifications/notification-providers';
 
-type TokenResponse = { id: string; displayNumber: string; status: TokenStatus };
+type TokenResponse = { id: string; displayNumber: string; status: TokenStatus; counter?: { id: string; name: string; code: string } | null };
 type NotificationRow = { status: NotificationStatus; attempts: number; provider: string; errorCode: string | null; providerMessageId: string | null; channel: string; eventType: string };
 
 class ControllableProvider implements NotificationProvider {
@@ -77,6 +77,7 @@ describe('Notifications (e2e)', () => {
       get: (path: string) => withTenant(request(server).get(path)),
       post: (path: string) => withTenant(request(server).post(path)),
       patch: (path: string) => withTenant(request(server).patch(path)),
+      delete: (path: string) => withTenant(request(server).delete(path)),
     };
   }
 
@@ -260,7 +261,9 @@ describe('Notifications (e2e)', () => {
     await tenantRequest(adminToken, orgA).patch(`/branches/${branchA1}/notification-settings`).send({ smsEnabled: true }).expect(200);
     provider.mode = 'transient';
     provider.transientFailuresRemaining = 2;
-    const called = await tenantRequest(adminToken, orgA).post(`/branches/${branchA1}/counters/${counterA1}/tokens/${transientToken.token.id}/call`).send({}).expect(201);
+    const assignedCounterId = transientToken.token.counter?.id ?? counterA1;
+    await completeCurrent(adminToken, orgA, branchA1, assignedCounterId);
+    const called = await tenantRequest(adminToken, orgA).post(`/branches/${branchA1}/counters/${assignedCounterId}/tokens/${transientToken.token.id}/call`).send({}).expect(201);
     expect((called.body as TokenResponse).id).toBe(transientToken.token.id);
     const transientRecord = await waitForNotification(transientToken.token.id, 'TOKEN_CALLED', (record) => record.status === NotificationStatus.SENT || record.status === NotificationStatus.FAILED);
     expect(transientRecord.status).toBe(NotificationStatus.SENT);
@@ -271,7 +274,9 @@ describe('Notifications (e2e)', () => {
     const permanentToken = await createQueueToken(adminToken, orgA, branchA1, 'Permanent Patient', serviceA1, '9123456781');
     await tenantRequest(adminToken, orgA).patch(`/branches/${branchA1}/notification-settings`).send({ smsEnabled: true }).expect(200);
     provider.mode = 'permanent';
-    const calledPermanent = await tenantRequest(adminToken, orgA).post(`/branches/${branchA1}/counters/${counterA1}/tokens/${permanentToken.token.id}/call`).send({}).expect(201);
+    const assignedCounterIdPermanent = permanentToken.token.counter?.id ?? counterA1;
+    await completeCurrent(adminToken, orgA, branchA1, assignedCounterIdPermanent);
+    const calledPermanent = await tenantRequest(adminToken, orgA).post(`/branches/${branchA1}/counters/${assignedCounterIdPermanent}/tokens/${permanentToken.token.id}/call`).send({}).expect(201);
     expect((calledPermanent.body as TokenResponse).status).toBe(TokenStatus.CALLED);
     const permanentRecord = await waitForNotification(permanentToken.token.id, 'TOKEN_CALLED', (record) => record.status === NotificationStatus.FAILED);
     expect(permanentRecord.status).toBe(NotificationStatus.FAILED);
@@ -283,8 +288,10 @@ describe('Notifications (e2e)', () => {
     const throwingToken = await createQueueToken(adminToken, orgA, branchA1, 'Throwing Patient', serviceA1, '9123456782');
     await tenantRequest(adminToken, orgA).patch(`/branches/${branchA1}/notification-settings`).send({ smsEnabled: true }).expect(200);
     provider.mode = 'throw';
-    const calledThrow = await tenantRequest(adminToken, orgA).post(`/branches/${branchA1}/counters/${counterA1}/tokens/${throwingToken.token.id}/call`).send({}).expect(201);
-    expect((calledThrow.body as TokenResponse).status).toBe(TokenStatus.CALLED);
+    const assignedCounterIdThrowing = throwingToken.token.counter?.id ?? counterA1;
+    await completeCurrent(adminToken, orgA, branchA1, assignedCounterIdThrowing);
+    const calledThrowing = await tenantRequest(adminToken, orgA).post(`/branches/${branchA1}/counters/${assignedCounterIdThrowing}/tokens/${throwingToken.token.id}/call`).send({}).expect(201);
+    expect((calledThrowing.body as TokenResponse).status).toBe(TokenStatus.CALLED);
     const throwingRecord = await waitForNotification(throwingToken.token.id, 'TOKEN_CALLED', (record) => record.status === NotificationStatus.FAILED);
     expect(throwingRecord.status).toBe(NotificationStatus.FAILED);
     expect(throwingRecord.errorCode).toBe('PROVIDER_EXCEPTION');
@@ -301,7 +308,8 @@ describe('Notifications (e2e)', () => {
       branch: { name: 'Phase 7 A1', code: 'P7A1' },
       token: { displayNumber: printable.token.displayNumber, status: TokenStatus.WAITING },
       service: { name: 'Notify Service' },
-      counter: null,
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+      counter: { name: expect.any(String), code: expect.any(String) },
     });
     expect(typeof (body.organization as { name?: unknown }).name).toBe('string');
     expect(typeof (body.department as { name?: unknown }).name).toBe('string');
@@ -326,11 +334,22 @@ describe('Notifications (e2e)', () => {
     const waitingToken = await createQueueToken(adminToken, orgA, branchA1, 'Operator Waiting', serviceA1);
     await tenantRequest(operatorToken, orgA).post(`/branches/${branchA1}/tokens/${waitingToken.token.id}/print`).send({}).expect(403);
     const active = await createQueueToken(adminToken, orgA, branchA1, 'Operator Active', serviceA1, '9999999999');
-    await tenantRequest(operatorToken, orgA).post(`/branches/${branchA1}/counters/${counterA1}/tokens/${active.token.id}/call`).send({}).expect(201);
+    const activeCounterId = active.token.counter?.id ?? counterA1;
+    
+    // Assign operator to whichever counter got the token
+    if (activeCounterId !== counterA1) {
+      const operatorUser = await prisma.user.findUniqueOrThrow({ where: { email: 'phase7-operator@example.com' } });
+      await tenantRequest(adminToken, orgA).delete(`/branches/${branchA1}/counters/${counterA1}/operators/${operatorUser.id}`).send({}).expect(200);
+      await tenantRequest(adminToken, orgA).post(`/branches/${branchA1}/counters/${activeCounterId}/operators`).send({ userId: operatorUser.id }).expect(201);
+    }
+    
+    await completeCurrent(adminToken, orgA, branchA1, activeCounterId);
+    await tenantRequest(operatorToken, orgA).post(`/branches/${branchA1}/counters/${activeCounterId}/tokens/${active.token.id}/call`).send({}).expect(201);
     const ticket = await tenantRequest(operatorToken, orgA).post(`/branches/${branchA1}/tokens/${active.token.id}/print`).send({}).expect(201);
-    expect((ticket.body as { counter: { name: string } }).counter.name).toBe('Notify Counter 1');
+    expect(['Notify Counter 1', 'Notify Counter 2']).toContain((ticket.body as { counter: { name: string } }).counter.name);
     await tenantRequest(operatorToken, orgA).post(`/branches/${branchA1}/tokens/${waitingToken.token.id}/print`).send({}).expect(403);
-    await tenantRequest(operatorToken, orgA).post(`/branches/${branchA1}/counters/${counterA2}/call-next`).send({}).expect(403);
-    await tenantRequest(adminToken, orgA).post(`/branches/${branchA1}/counters/${counterA1}/current/complete`).send({}).expect(201);
+    const otherCounterId = activeCounterId === counterA1 ? counterA2 : counterA1;
+    await tenantRequest(operatorToken, orgA).post(`/branches/${branchA1}/counters/${otherCounterId}/call-next`).send({}).expect(403);
+    await tenantRequest(adminToken, orgA).post(`/branches/${branchA1}/counters/${activeCounterId}/current/complete`).send({}).expect(201);
   });
 });

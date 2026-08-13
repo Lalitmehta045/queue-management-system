@@ -96,7 +96,6 @@ export class PublicQueueService {
         peopleAhead = await this.prisma.token.count({
           where: {
             status: TokenStatus.WAITING,
-            counterId: null,
             queueEntry: { serviceId: token.queueEntry.serviceId, status: QueueEntryStatus.WAITING },
             OR: [
               { issuedAt: { lt: starvationThreshold } },

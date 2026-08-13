@@ -9,7 +9,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
 
-type TokenResponse = { id: string; displayNumber: string; sequenceNumber: number; status: TokenStatus; businessDate?: string; queueEntry: { patient: { patientNumber: string; firstName: string; lastName: string }; service: { name: string; department: { name: string } } } };
+type TokenResponse = { id: string; displayNumber: string; sequenceNumber: number; status: TokenStatus; businessDate?: string; counter?: { id: string; name: string; code: string } | null; queueEntry: { patient: { patientNumber: string; firstName: string; lastName: string }; service: { name: string; department: { name: string } } } };
 
 describe('Queue calling (e2e)', () => {
   let app: INestApplication;
@@ -138,15 +138,22 @@ describe('Queue calling (e2e)', () => {
 
   it('enforces CALL NEXT ordering, skip behavior, and current-token exclusivity', async () => {
     const first = await createQueueToken(adminToken, orgA, branchA1, 'Next One', serviceA1);
-    const second = await createQueueToken(adminToken, orgA, branchA1, 'Next Two', serviceA1);
-    const called = await tenantRequest(operatorOneToken, orgA).post(`/branches/${branchA1}/counters/${counterA1}/call-next`).expect(201);
+    await createQueueToken(adminToken, orgA, branchA1, 'Next Two', serviceA1);
+    const third = await createQueueToken(adminToken, orgA, branchA1, 'Next Three', serviceA1);
+    
+    const assignedCounterId = first.token.counter?.id ?? counterA1;
+    const operator = assignedCounterId === counterA1 ? operatorOneToken : operatorTwoToken;
+
+    const called = await tenantRequest(operator, orgA).post(`/branches/${branchA1}/counters/${assignedCounterId}/call-next`).expect(201);
     expect((called.body as TokenResponse).id).toBe(first.token.id);
-    await tenantRequest(operatorOneToken, orgA).post(`/branches/${branchA1}/counters/${counterA1}/call-next`).expect(409);
-    await tenantRequest(operatorOneToken, orgA).post(`/branches/${branchA1}/counters/${counterA1}/current/skip`).expect(201);
-    const next = await tenantRequest(operatorOneToken, orgA).post(`/branches/${branchA1}/counters/${counterA1}/call-next`).expect(201);
-    expect((next.body as TokenResponse).id).toBe(second.token.id);
-    await tenantRequest(operatorOneToken, orgA).post(`/branches/${branchA1}/counters/${counterA1}/current/complete`).expect(201);
-    const waiting = await tenantRequest(operatorOneToken, orgA).get(`/branches/${branchA1}/counters/${counterA1}/waiting`).expect(200);
+    await tenantRequest(operator, orgA).post(`/branches/${branchA1}/counters/${assignedCounterId}/call-next`).expect(409);
+    await tenantRequest(operator, orgA).post(`/branches/${branchA1}/counters/${assignedCounterId}/current/skip`).expect(201);
+    
+    const next = await tenantRequest(operator, orgA).post(`/branches/${branchA1}/counters/${assignedCounterId}/call-next`).expect(201);
+    expect((next.body as TokenResponse).id).toBe(third.token.id);
+    
+    await tenantRequest(operator, orgA).post(`/branches/${branchA1}/counters/${assignedCounterId}/current/complete`).expect(201);
+    const waiting = await tenantRequest(operator, orgA).get(`/branches/${branchA1}/counters/${assignedCounterId}/waiting`).expect(200);
     expect((waiting.body as { data: TokenResponse[] }).data.every((token) => token.status === TokenStatus.WAITING)).toBe(true);
   });
 
@@ -204,7 +211,8 @@ describe('Queue calling (e2e)', () => {
     for (let index = 0; index < 50; index += 1) {
       const patient = await prisma.patient.create({ data: { branchId: branchA1, patientNumber: `CALL-${index}-${randomUUID()}`, firstName: `Bulk${index}`, lastName: 'Call' }, select: { id: true } });
       const queue = await prisma.queueEntry.create({ data: { patientId: patient.id, serviceId: serviceA1, activeEntryKey: `bulk:${patient.id}:${serviceA1}` }, select: { id: true } });
-      const token = await prisma.token.create({ data: { queueEntryId: queue.id, sequenceId: bulk.id, sequenceNumber: 1000 + index, displayNumber: `T-${1000 + index}`, businessDate: bulk.businessDate }, select: { id: true } });
+      const counterId = index % 2 === 0 ? counterA1 : counterA2;
+      const token = await prisma.token.create({ data: { queueEntryId: queue.id, sequenceId: bulk.id, sequenceNumber: 1000 + index, displayNumber: `T-${1000 + index}`, businessDate: bulk.businessDate, counterId }, select: { id: true } });
       queueEntries.push(token.id);
     }
     const results = await Promise.all(Array.from({ length: 50 }, (_, index) => tenantRequest(index % 2 === 0 ? operatorOneToken : operatorTwoToken, orgA).post(`/branches/${branchA1}/counters/${index % 2 === 0 ? counterA1 : counterA2}/call-next`)));

@@ -154,30 +154,27 @@ export class DisplaysService {
     });
     
     const waitingTokens = await this.prisma.token.findMany({
-      where: { status: TokenStatus.WAITING, counterId: null, queueEntry: { status: 'WAITING', patient: { branchId: display.branchId }, service: { department: { branchId: display.branchId } } } },
+      where: { status: TokenStatus.WAITING, counterId: { not: null }, queueEntry: { status: 'WAITING', patient: { branchId: display.branchId }, service: { department: { branchId: display.branchId } } } },
       orderBy: [{ queueEntry: { priorityWeight: 'desc' } }, { businessDate: 'asc' }, { sequenceNumber: 'asc' }, { id: 'asc' }],
-      take: branchCounters.length,
+      take: branchCounters.length * 5,
       select: this.publicTokenSelect,
     });
 
-    const sortedForNext = [...branchCounters].sort((a, b) => {
-      const aIdle = !activeCountersTokens.some(t => t.counter?.name === a.name && t.counter?.code === a.code);
-      const bIdle = !activeCountersTokens.some(t => t.counter?.name === b.name && t.counter?.code === b.code);
-      if (aIdle && !bIdle) return -1;
-      if (!aIdle && bIdle) return 1;
-      return (a.name ?? a.code ?? '').localeCompare(b.name ?? b.code ?? '');
-    });
+
 
     const nextTokenMap = new Map<string, PublicToken>();
-    sortedForNext.forEach((c, i) => {
-      if (waitingTokens[i]) {
-        nextTokenMap.set(c.id, this.toPublicToken(waitingTokens[i]));
+    for (const t of waitingTokens) {
+      if (t.counterId && !nextTokenMap.has(t.counterId)) {
+        nextTokenMap.set(t.counterId, this.toPublicToken(t));
       }
-    });
+    }
 
     const counters = branchCounters.map((counter) => {
-      const nowToken = activeCountersTokens.find((t) => t.counter?.name === counter.name && t.counter?.code === counter.code);
+      const nowToken = activeCountersTokens.find((t) => t.counterId === counter.id);
       return {
+        id: counter.id,
+        name: counter.name,
+        code: counter.code,
         counter: counter.name ?? counter.code ?? 'Counter',
         now: nowToken ? this.toPublicToken(nowToken) : null,
         next: nextTokenMap.get(counter.id) || null,
@@ -235,6 +232,7 @@ export class DisplaysService {
     calledAt: true,
     recalledAt: true,
     recallCount: true,
+    counterId: true,
     counter: { select: { name: true, code: true } },
   } satisfies Prisma.TokenSelect;
 
@@ -258,6 +256,7 @@ type PublicTokenRow = {
   calledAt: Date | null;
   recalledAt: Date | null;
   recallCount: number;
+  counterId: string | null;
   counter: { name: string; code: string } | null;
 };
 

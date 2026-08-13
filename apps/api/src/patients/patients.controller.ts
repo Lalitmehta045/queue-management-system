@@ -18,7 +18,7 @@ export class PatientsController {
   constructor(private readonly patientsService: PatientsService) {}
 
   @Post()
-  @Roles(Role.ORG_ADMIN, Role.BRANCH_ADMIN, Role.RECEPTIONIST)
+  @Roles(Role.ORG_ADMIN, Role.BRANCH_ADMIN, Role.RECEPTIONIST, Role.COUNTER_OPERATOR)
   create(@CurrentTenant() tenant: AuthenticatedRequest['tenant'], @CurrentUser() user: { userId: string }, @Req() request: AuthenticatedRequest, @Param('branchId') branchId: string, @Body() dto: CreatePatientDto) {
     const requiredTenant = this.requireTenant(tenant);
     return this.patientsService.create(requiredTenant, branchId, dto, getAuditContext(requiredTenant, user, request));
@@ -37,21 +37,21 @@ export class PatientsController {
   }
 
   @Patch(':patientId')
-  @Roles(Role.ORG_ADMIN, Role.BRANCH_ADMIN, Role.RECEPTIONIST)
+  @Roles(Role.ORG_ADMIN, Role.BRANCH_ADMIN, Role.RECEPTIONIST, Role.COUNTER_OPERATOR)
   update(@CurrentTenant() tenant: AuthenticatedRequest['tenant'], @CurrentUser() user: { userId: string }, @Req() request: AuthenticatedRequest, @Param('branchId') branchId: string, @Param('patientId') patientId: string, @Body() dto: UpdatePatientDto) {
     const requiredTenant = this.requireTenant(tenant);
     return this.patientsService.update(requiredTenant, branchId, patientId, dto, getAuditContext(requiredTenant, user, request));
   }
 
   @Post(':patientId/activate')
-  @Roles(Role.ORG_ADMIN, Role.BRANCH_ADMIN, Role.RECEPTIONIST)
+  @Roles(Role.ORG_ADMIN, Role.BRANCH_ADMIN, Role.RECEPTIONIST, Role.COUNTER_OPERATOR)
   activate(@CurrentTenant() tenant: AuthenticatedRequest['tenant'], @CurrentUser() user: { userId: string }, @Req() request: AuthenticatedRequest, @Param('branchId') branchId: string, @Param('patientId') patientId: string) {
     const requiredTenant = this.requireTenant(tenant);
     return this.patientsService.setStatus(requiredTenant, branchId, patientId, PatientStatus.ACTIVE, getAuditContext(requiredTenant, user, request));
   }
 
   @Post(':patientId/deactivate')
-  @Roles(Role.ORG_ADMIN, Role.BRANCH_ADMIN, Role.RECEPTIONIST)
+  @Roles(Role.ORG_ADMIN, Role.BRANCH_ADMIN, Role.RECEPTIONIST, Role.COUNTER_OPERATOR)
   deactivate(@CurrentTenant() tenant: AuthenticatedRequest['tenant'], @CurrentUser() user: { userId: string }, @Req() request: AuthenticatedRequest, @Param('branchId') branchId: string, @Param('patientId') patientId: string) {
     const requiredTenant = this.requireTenant(tenant);
     return this.patientsService.setStatus(requiredTenant, branchId, patientId, PatientStatus.INACTIVE, getAuditContext(requiredTenant, user, request));

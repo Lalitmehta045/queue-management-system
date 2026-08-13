@@ -7,6 +7,7 @@ import { AuthenticatedRequest, TenantGuard } from '../auth/guards/tenant.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { CreateTeamMemberDto } from './dto/create-team-member.dto';
 import { UpdateTeamMemberDto } from './dto/update-team-member.dto';
+import { UpdateTeamMemberPasswordDto } from './dto/update-team-member-password.dto';
 import { TeamMembersService } from './team-members.service';
 
 @Controller('organizations/current/team-members')
@@ -25,6 +26,15 @@ export class TeamMembersController {
     return this.teamMembersService.create(this.organizationId(tenant), dto);
   }
 
+  @Patch(':membershipId/password')
+  updatePassword(
+    @CurrentTenant() tenant: AuthenticatedRequest['tenant'],
+    @Param('membershipId') membershipId: string,
+    @Body() dto: UpdateTeamMemberPasswordDto,
+  ) {
+    return this.teamMembersService.updatePassword(this.organizationId(tenant), membershipId, dto.newPassword);
+  }
+
   @Patch(':membershipId')
   update(@CurrentTenant() tenant: AuthenticatedRequest['tenant'], @Param('membershipId') membershipId: string, @Body() dto: UpdateTeamMemberDto) {
     return this.teamMembersService.update(this.organizationId(tenant), membershipId, dto);
@@ -39,6 +49,8 @@ export class TeamMembersController {
   deactivate(@CurrentTenant() tenant: AuthenticatedRequest['tenant'], @Param('membershipId') membershipId: string) {
     return this.teamMembersService.setStatus(this.organizationId(tenant), membershipId, MembershipStatus.SUSPENDED);
   }
+
+
 
   private organizationId(tenant: AuthenticatedRequest['tenant']): string {
     if (!tenant) throw new Error('Tenant context is required');

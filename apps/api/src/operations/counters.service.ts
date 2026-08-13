@@ -8,6 +8,7 @@ import { EntitlementsService } from '../entitlements/entitlements.service';
 import { CreateCounterDto } from './dto/create-counter.dto';
 import { ListResourcesDto } from './dto/list-resources.dto';
 import { UpdateCounterDto } from './dto/update-counter.dto';
+import { QueueAllocationService } from '../queue-calling/queue-allocation.service';
 
 type Tenant = NonNullable<AuthenticatedRequest['tenant']>;
 
@@ -17,6 +18,7 @@ export class CountersService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly entitlements: EntitlementsService,
+    private readonly queueAllocation: QueueAllocationService,
   ) {}
 
   async create(tenant: Tenant, branchId: string, dto: CreateCounterDto, auditContext?: AuditContext) {
@@ -97,7 +99,11 @@ export class CountersService {
   async setStatus(tenant: Tenant, branchId: string, counterId: string, status: CounterStatus, auditContext?: AuditContext) {
     await this.authorizeBranch(tenant, branchId);
     await this.get(tenant, branchId, counterId);
-    const counter = await this.prisma.counter.update({ where: { id: counterId }, data: { status }, select: this.counterSelect });
+    const counter = await this.prisma.$transaction(async (tx) => {
+      const c = await tx.counter.update({ where: { id: counterId }, data: { status }, select: this.counterSelect });
+      await this.queueAllocation.rebalanceWaitingTokens(tx, branchId);
+      return c;
+    });
     if (auditContext) await this.audit.record({ ...auditContext, organizationId: tenant.organizationId, branchId, action: status === CounterStatus.ACTIVE ? AuditAction.COUNTER_ACTIVATED : AuditAction.COUNTER_DEACTIVATED, resourceType: AuditResourceType.COUNTER, resourceId: counter.id, metadata: { name: counter.name, code: counter.code, status: counter.status } });
     return counter;
   }

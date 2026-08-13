@@ -262,12 +262,13 @@ export default function PublicDisplayPage({ params }: { params: Promise<{ displa
       </section>
 
       {/* COUNTER GRID */}
-      <section className="bg-slate-50 shrink-0 border-b-4 border-slate-200">
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 w-full h-full">
+      <section className="bg-slate-50 shrink-0 border-b-4 border-slate-200 overflow-x-auto">
+        <div className="flex w-full h-full min-w-min">
           {counters.map((c, idx) => (
-            <div key={idx} className={`flex flex-col text-center bg-white ${idx < counters.length - 1 ? 'border-r-2 border-slate-200' : ''}`}>
-              <div className="bg-teal-700 text-white font-bold text-xl py-3 uppercase tracking-wider shadow-sm">
-                {c.counter}
+            <div key={c.id || idx} className={`flex-1 min-w-[250px] flex flex-col text-center bg-white ${idx < counters.length - 1 ? 'border-r-2 border-slate-200' : ''}`}>
+              <div className="py-4 flex flex-col items-center justify-center border-b-2 border-slate-100 bg-white shadow-sm">
+                <h3 className="font-bold text-[#041E42] text-sm uppercase tracking-wider">{c.name || 'Counter'}</h3>
+                <span className="font-extrabold text-[#041E42] text-lg uppercase tracking-widest mt-0.5">{c.code || c.counter}</span>
               </div>
               <div className="py-8 flex flex-col justify-center border-b-2 border-slate-100 min-h-[160px]">
                 <p className="text-sm font-bold text-[#041E42] tracking-widest uppercase mb-2">Now Serving</p>
@@ -295,64 +296,7 @@ export default function PublicDisplayPage({ params }: { params: Promise<{ displa
           </span>
         </div>
 
-        <div className="flex divide-x-2 divide-slate-200 px-8 py-5">
-          <div className="flex-1 flex flex-col pr-8">
-            <h4 className="text-[0.7rem] font-bold text-slate-500 uppercase tracking-widest mb-3">How It Works</h4>
-            <div className="flex items-center justify-between text-slate-600 text-sm font-semibold opacity-90">
-              <div className="flex flex-col items-center text-center gap-2 max-w-[140px]">
-                <svg className="w-8 h-8 text-teal-600" fill="currentColor" viewBox="0 0 24 24"><path d="M13 5v14l-5-4H3V9h5l5-4zm2.5 7c0-1.7-.9-3.2-2.3-4l-.7 1.4c1 1.6.3 3.6-1.3 4.6l.7 1.4c1.8-1 3-2.9 3-3.4zM18 12c0-3.3-1.8-6.2-4.5-7.7l-.8 1.4c2.1 1.2 3.5 3.5 3.5 6s-1.4 4.8-3.5 6l.8 1.4C16.2 17.6 18 14.8 18 12z"/></svg>
-                <span className="text-[0.75rem] leading-snug">When a token is called, it appears under NOW SERVING.</span>
-              </div>
-              <svg className="w-6 h-6 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
-              <div className="flex flex-col items-center text-center gap-2 max-w-[140px]">
-                <svg className="w-8 h-8 text-teal-600" fill="currentColor" viewBox="0 0 24 24"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
-                <span className="text-[0.75rem] leading-snug">The NEXT token in line for that counter is shown below.</span>
-              </div>
-              <svg className="w-6 h-6 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
-              <div className="flex flex-col items-center text-center gap-2 max-w-[140px]">
-                <svg className="w-8 h-8 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-                <span className="text-[0.75rem] leading-snug">Display updates automatically in real-time.</span>
-              </div>
-            </div>
-          </div>
-          <div className="flex-1 px-8 flex flex-col">
-            <h4 className="text-[0.7rem] font-bold text-slate-500 uppercase tracking-widest mb-3">Connection Status</h4>
-            <div className="flex items-center gap-5 mt-1">
-              <div className="flex flex-col items-center">
-                 <div className="relative flex items-center justify-center">
-                   {state === 'ready' && <div className="absolute w-12 h-12 bg-green-200 rounded-full animate-ping opacity-50"></div>}
-                   <div className={`relative flex items-center justify-center w-12 h-12 rounded-full ${state === 'ready' ? 'bg-green-100 text-green-600' : 'bg-amber-100 text-amber-600'}`}>
-                     <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.14 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0"/></svg>
-                   </div>
-                 </div>
-              </div>
-              <div className="flex flex-col justify-center">
-                <span className={`text-[1.1rem] font-black tracking-widest uppercase ${state === 'ready' ? 'text-green-600' : 'text-amber-600'}`}>
-                  ● {state === 'ready' ? 'Live' : 'Reconnecting'}
-                </span>
-                <span className="text-[0.85rem] text-[#041E42] font-bold mt-0.5">Connected</span>
-                <span className="text-[0.75rem] text-slate-500 font-medium">Receiving live updates</span>
-              </div>
-            </div>
-          </div>
-          <div className="flex-1 pl-8 flex flex-col">
-            <h4 className="text-[0.7rem] font-bold text-slate-500 uppercase tracking-widest mb-3">Legend</h4>
-            <div className="flex flex-col gap-2 mt-1">
-               <div className="flex items-center gap-3">
-                 <div className="w-3 h-3 rounded-full bg-teal-600"></div>
-                 <span className="text-[0.8rem] font-semibold text-[#041E42]">Active / Serving</span>
-               </div>
-               <div className="flex items-center gap-3">
-                 <div className="w-3 h-3 rounded-full bg-amber-500"></div>
-                 <span className="text-[0.8rem] font-semibold text-[#041E42]">Idle</span>
-               </div>
-               <div className="flex items-center gap-3">
-                 <div className="w-3 h-3 rounded-full bg-slate-400"></div>
-                 <span className="text-[0.8rem] font-semibold text-[#041E42]">No Data</span>
-               </div>
-            </div>
-          </div>
-        </div>
+
       </footer>
     </div>
   );

@@ -11,6 +11,7 @@ import { EntitlementsService } from '../entitlements/entitlements.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ListTokensDto } from './dto/list-tokens.dto';
+import { QueueAllocationService } from '../queue-calling/queue-allocation.service';
 
 type Tenant = NonNullable<AuthenticatedRequest['tenant']>;
 type BusinessDateKey = `${number}-${number}-${number}`;
@@ -27,6 +28,7 @@ export class TokensService {
     private readonly notifications: NotificationsService,
     private readonly audit: AuditService,
     private readonly entitlements: EntitlementsService,
+    private readonly queueAllocation: QueueAllocationService,
     configService: ConfigService<ValidatedEnvironment, true>,
   ) {
     this.timeZone = configService.get('TOKEN_TIME_ZONE');
@@ -85,6 +87,8 @@ export class TokensService {
           const claimed = await tx.tokenSequence.updateMany({ where: { id: sequence.id, nextNumber: sequenceNumber }, data: { nextNumber: { increment: 1 } } });
           if (claimed.count !== 1) throw new RetryableTokenGenerationError('Token sequence contention');
 
+          const counterId = await this.queueAllocation.allocateWaitingToken(tx, branchId);
+
           const token = await tx.token.create({
             data: {
               queueEntryId: queueEntry.id,
@@ -92,6 +96,7 @@ export class TokensService {
               sequenceNumber,
               displayNumber: this.displayNumber(sequenceNumber),
               businessDate: normalizedBusinessDate,
+              counterId,
             },
             select: this.tokenSelect,
           });
@@ -248,6 +253,7 @@ export class TokensService {
     createdAt: true,
     updatedAt: true,
     queueEntry: { select: { id: true, priority: true, priorityWeight: true, patient: { select: { id: true, patientNumber: true, firstName: true, lastName: true } }, service: { select: { id: true, name: true, department: { select: { id: true, name: true } } } } } },
+    counter: { select: { id: true, name: true, code: true } },
   } satisfies Prisma.TokenSelect;
 
   private isUniqueError(error: unknown) {

@@ -19,7 +19,7 @@ export class TokensController {
 
   @Post('queue-entries/:queueEntryId/token')
   @Throttle({ default: { limit: 1000, ttl: 60000 } })
-  @Roles(Role.ORG_ADMIN, Role.BRANCH_ADMIN, Role.RECEPTIONIST)
+  @Roles(Role.ORG_ADMIN, Role.BRANCH_ADMIN, Role.RECEPTIONIST, Role.COUNTER_OPERATOR)
   generate(@CurrentTenant() tenant: AuthenticatedRequest['tenant'], @CurrentUser() user: { userId: string }, @Req() request: AuthenticatedRequest, @Param('branchId') branchId: string, @Param('queueEntryId') queueEntryId: string, @Body() dto: GenerateTokenDto) {
     void dto;
     const requiredTenant = this.requireTenant(tenant);
@@ -45,7 +45,7 @@ export class TokensController {
   }
 
   @Post('tokens/:tokenId/cancel')
-  @Roles(Role.ORG_ADMIN, Role.BRANCH_ADMIN, Role.RECEPTIONIST)
+  @Roles(Role.ORG_ADMIN, Role.BRANCH_ADMIN, Role.RECEPTIONIST, Role.COUNTER_OPERATOR)
   cancel(@CurrentTenant() tenant: AuthenticatedRequest['tenant'], @CurrentUser() user: { userId: string }, @Req() request: AuthenticatedRequest, @Param('branchId') branchId: string, @Param('tokenId') tokenId: string) {
     const requiredTenant = this.requireTenant(tenant);
     return this.tokensService.cancel(requiredTenant, branchId, tokenId, getAuditContext(requiredTenant, user, request));

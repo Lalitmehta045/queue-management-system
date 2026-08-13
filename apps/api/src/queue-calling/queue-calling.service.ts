@@ -45,7 +45,7 @@ export class QueueCallingService {
       
       const starvationThreshold = new Date(Date.now() - 60 * 60 * 1000); // 1 hour
       let candidates = await tx.token.findMany({
-        where: { ...this.waitingScope(tenant.organizationId, branchId), issuedAt: { lt: starvationThreshold } },
+        where: { ...this.waitingScope(tenant.organizationId, branchId, counter.id), issuedAt: { lt: starvationThreshold } },
         orderBy: [{ businessDate: 'asc' }, { sequenceNumber: 'asc' }, { id: 'asc' }],
         take: 5,
         select: { id: true },
@@ -53,7 +53,7 @@ export class QueueCallingService {
 
       if (candidates.length === 0) {
         candidates = await tx.token.findMany({
-          where: this.waitingScope(tenant.organizationId, branchId),
+          where: this.waitingScope(tenant.organizationId, branchId, counter.id),
           orderBy: [{ queueEntry: { priorityWeight: 'desc' } }, { businessDate: 'asc' }, { sequenceNumber: 'asc' }, { id: 'asc' }],
           take: 20,
           select: { id: true },
@@ -62,8 +62,8 @@ export class QueueCallingService {
 
       for (const candidate of candidates) {
         const claimed = await tx.token.updateMany({
-          where: { id: candidate.id, status: TokenStatus.WAITING, counterId: null },
-          data: { status: TokenStatus.CALLED, counterId: counter.id, operatorId: userId, calledAt: new Date() },
+          where: { id: candidate.id, status: TokenStatus.WAITING, counterId: counter.id },
+          data: { status: TokenStatus.CALLED, operatorId: userId, calledAt: new Date() },
         });
         if (claimed.count === 1) return this.findCurrentInTransaction(tx, tenant.organizationId, branchId, counter.id);
       }
@@ -94,8 +94,8 @@ export class QueueCallingService {
 
         await this.ensureCounterAvailable(tx, tenant.organizationId, branchId, counter.id);
         const claimed = await tx.token.updateMany({
-          where: { id: tokenId, ...this.waitingScope(tenant.organizationId, branchId), counterId: null },
-          data: { status: TokenStatus.CALLED, counterId: counter.id, operatorId: userId, calledAt: new Date() },
+          where: { id: tokenId, ...this.waitingScope(tenant.organizationId, branchId, counter.id) },
+          data: { status: TokenStatus.CALLED, operatorId: userId, calledAt: new Date() },
         });
         if (claimed.count !== 1) throw new ConflictException('Token is not available for calling');
         return this.findCurrentInTransaction(tx, tenant.organizationId, branchId, counter.id);
@@ -117,7 +117,7 @@ export class QueueCallingService {
   async waiting(tenant: Tenant, userId: string, branchId: string, counterId: string) {
     const counter = await this.authorizeCounter(tenant, userId, branchId, counterId);
     const data = await this.prisma.token.findMany({
-      where: this.waitingScope(tenant.organizationId, counter.branchId),
+      where: this.waitingScope(tenant.organizationId, counter.branchId, counter.id),
       orderBy: [{ queueEntry: { priorityWeight: 'desc' } }, { businessDate: 'asc' }, { sequenceNumber: 'asc' }, { id: 'asc' }],
       select: this.tokenSelect,
     });
@@ -234,8 +234,19 @@ export class QueueCallingService {
     if (current) throw new ConflictException('Counter already has an active token');
   }
 
-  private waitingScope(organizationId: string, branchId: string): Prisma.TokenWhereInput {
-    return { status: TokenStatus.WAITING, counterId: null, queueEntry: { status: QueueEntryStatus.WAITING, patient: { branchId, branch: { organizationId } }, service: { department: { branchId, branch: { organizationId } } } } };
+  private waitingScope(organizationId: string, branchId: string, counterId?: string): Prisma.TokenWhereInput {
+    const scope: Prisma.TokenWhereInput = {
+      status: TokenStatus.WAITING,
+      queueEntry: {
+        status: QueueEntryStatus.WAITING,
+        patient: { branchId, branch: { organizationId } },
+        service: { department: { branchId, branch: { organizationId } } },
+      },
+    };
+    if (counterId) {
+      scope.counterId = counterId;
+    }
+    return scope;
   }
 
   private async findCurrent(organizationId: string, branchId: string, counterId: string) {

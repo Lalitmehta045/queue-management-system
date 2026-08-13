@@ -32,6 +32,7 @@
     "seed": "npx tsx prisma/seed.ts"
   },
   "devDependencies": {
+    "@babel/parser": "^7.29.8",
     "@playwright/test": "^1.62.1",
     "playwright": "^1.62.1",
     "prisma": "^6.13.0"

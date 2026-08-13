@@ -5,8 +5,10 @@ import { ServicesController } from './services.controller';
 import { CountersController } from './counters.controller';
 import { CountersService } from './counters.service';
 import { OperatorsController } from './operators.controller';
+import { QueueCallingModule } from '../queue-calling/queue-calling.module';
 
 @Module({
+  imports: [QueueCallingModule],
   controllers: [DepartmentsController, ServicesController, CountersController, OperatorsController],
   providers: [OperationsService, CountersService],
 })

@@ -189,6 +189,17 @@ export class TeamMembersService {
     return this.toResponse(member);
   }
 
+  async updatePassword(organizationId: string, membershipId: string, newPassword: string) {
+    const current = await this.getMembership(organizationId, membershipId);
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+    await this.prisma.user.update({
+      where: { id: current.userId },
+      data: { passwordHash },
+      select: { id: true },
+    });
+    return { success: true };
+  }
+
   private async getMembership(organizationId: string, membershipId: string) {
     if (!isUUID(membershipId)) throw new NotFoundException('Team member not found');
     const membership = await this.prisma.membership.findFirst({

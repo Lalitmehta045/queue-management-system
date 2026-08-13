@@ -4,13 +4,13 @@ import { FeatureGuard } from '../entitlements/feature.guard';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { AppointmentsController } from './appointments.controller';
 import { AppointmentsService } from './appointments.service';
-import { TokensService } from '../tokens/tokens.service';
-import { QueueEntriesService } from '../queue-entries/queue-entries.service';
+import { TokensModule } from '../tokens/tokens.module';
+import { QueueEntriesModule } from '../queue-entries/queue-entries.module';
 
 @Module({
-  imports: [DisplaysModule, NotificationsModule],
+  imports: [DisplaysModule, NotificationsModule, TokensModule, QueueEntriesModule],
   controllers: [AppointmentsController],
-  providers: [AppointmentsService, TokensService, QueueEntriesService, FeatureGuard],
+  providers: [AppointmentsService, FeatureGuard],
   exports: [AppointmentsService],
 })
 export class AppointmentsModule {}

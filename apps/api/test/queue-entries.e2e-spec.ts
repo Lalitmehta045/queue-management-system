@@ -85,6 +85,9 @@ describe('Queue entries (e2e)', () => {
     branchB1 = ((await tenantRequest(tokenB, orgB).post('/organizations/current/branches').send({ name: 'Phase 3B B1', code: 'P3BB1' }).expect(201)).body as { id: string }).id;
     await prisma.membership.create({ data: { userId: branchAdmin.id, organizationId: orgA, branchId: branchA1, role: Role.BRANCH_ADMIN, status: MembershipStatus.ACTIVE } });
     branchAdminId = branchAdmin.id;
+    const userB_id = (await prisma.user.findUniqueOrThrow({ where: { email: 'phase3b-b@example.com' } })).id;
+    await prisma.membership.create({ data: { userId: userB_id, organizationId: orgA, branchId: branchA1, role: Role.COUNTER_OPERATOR, status: MembershipStatus.ACTIVE } });
+
 
     patientA1 = await createPatient(tokenA, orgA, branchA1, 'Patient A1');
     patientA2 = await createPatient(tokenA, orgA, branchA2, 'Patient A2');
@@ -113,6 +116,8 @@ describe('Queue entries (e2e)', () => {
     expect((body.data[0] as QueueEntryResponse & { service: { department: { passwordHash?: string } } }).service.department.passwordHash).toBeUndefined();
     expect(body.meta).toMatchObject({ page: 1, limit: 20, total: 1 });
     await tenantRequest(tokenA, orgA).get(`/branches/${branchA1}/queue-entries/${queueEntryA1}`).expect(200);
+    await tenantRequest(tokenB, orgA).get(`/branches/${branchA1}/queue-entries/${queueEntryA1}`).expect(200);
+
     await tenantRequest(tokenA, orgA).get(`/branches/${branchA1}/queue-entries`).query({ search: 'Patient A1' }).expect(200);
     await tenantRequest(tokenA, orgA).get(`/branches/${branchA1}/queue-entries`).query({ page: -1 }).expect(400);
     await tenantRequest(tokenA, orgA).get(`/branches/${branchA1}/queue-entries`).query({ limit: 101 }).expect(400);

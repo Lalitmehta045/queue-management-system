@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { fetchWithAuth } from '../../../../../lib/auth-client';
+import { fetchWithAuth } from '../../../../../../lib/auth-client';
 
 type Service = { id: string; departmentId: string; name: string; status: 'ACTIVE' | 'INACTIVE' };
 
@@ -61,5 +61,5 @@ export default function ServicesPage() {
   if (state === 'forbidden') return <main className="page-shell"><p className="error-text">You do not have permission to manage services.</p></main>;
   if (state === 'error') return <main className="page-shell"><p className="error-text">Unable to load services.</p></main>;
 
-  return <main className="page-shell"><nav className="top-nav"><a href="/dashboard">Dashboard</a><a href="/organization/branches">Branches</a></nav><section className="content-panel"><p className="eyebrow">Department operations</p><h1>Services</h1><form onSubmit={save} className="branch-form"><label>Name<input required minLength={2} maxLength={120} value={name} onChange={(event) => setName(event.target.value)} /></label><span /><button type="submit">{editingId ? 'Update service' : 'Add service'}</button></form>{message && <p className="success-text">{message}</p>}{state === 'empty' ? <p className="muted">No services have been created yet.</p> : <div className="branch-list">{services.map((service) => <article className="branch-row" key={service.id}><div><strong>{service.name}</strong><span className="muted">{service.status}</span></div><div className="row-actions"><button type="button" onClick={() => { setEditingId(service.id); setName(service.name); }}>Edit</button><button type="button" onClick={() => void toggle(service)}>{service.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}</button></div></article>)}</div>}</section></main>;
+  return <main className="page-shell"><nav className="top-nav"><a href="/dashboard">Dashboard</a><a href="/dashboard/organization/branches">Branches</a></nav><section className="content-panel"><p className="eyebrow">Department operations</p><h1>Services</h1><form onSubmit={save} className="branch-form"><label>Name<input required minLength={2} maxLength={120} value={name} onChange={(event) => setName(event.target.value)} /></label><span /><button type="submit">{editingId ? 'Update service' : 'Add service'}</button></form>{message && <p className="success-text">{message}</p>}{state === 'empty' ? <p className="muted">No services have been created yet.</p> : <div className="branch-list">{services.map((service) => <article className="branch-row" key={service.id}><div><strong>{service.name}</strong><span className="muted">{service.status}</span></div><div className="row-actions"><button type="button" onClick={() => { setEditingId(service.id); setName(service.name); }}>Edit</button><button type="button" onClick={() => void toggle(service)}>{service.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}</button></div></article>)}</div>}</section></main>;
 }

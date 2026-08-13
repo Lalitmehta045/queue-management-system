@@ -130,6 +130,9 @@ export type DisplaySnapshot = {
   waitingSummary: { total: number };
   updatedAt: string;
   counters: {
+    id: string;
+    name: string;
+    code: string;
     counter: string;
     now: PublicToken | null;
     next: PublicToken | null;

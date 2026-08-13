@@ -45,6 +45,7 @@ const METADATA_ALLOWLIST: Record<AuditResourceType, readonly string[]> = {
   SUBSCRIPTION_PLAN: ['name', 'code', 'description', 'monthlyPrice', 'yearlyPrice', 'active', 'limits', 'features', 'changedFields'],
   ORGANIZATION_SUBSCRIPTION: ['planId', 'status', 'startsAt', 'endsAt', 'trialEndsAt', 'changedFields'],
   QUEUE_CONFIGURATION: ['changedFields'],
+  MEMBERSHIP: ['membershipId', 'changedFields'],
 };
 
 @Injectable()

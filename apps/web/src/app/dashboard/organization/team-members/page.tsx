@@ -2,15 +2,17 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Badge } from '../../../components/ui/Badge';
-import { Button } from '../../../components/ui/Button';
-import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/Card';
-import { EmptyState } from '../../../components/ui/EmptyState';
-import { ErrorState } from '../../../components/ui/ErrorState';
-import { Input } from '../../../components/ui/Input';
-import { Select } from '../../../components/ui/Select';
-import { Skeleton, TableSkeleton } from '../../../components/ui/Skeleton';
-import { fetchWithAuth } from '../../../lib/auth-client';
+import { Badge } from '../../../../components/ui/Badge';
+import { Button } from '../../../../components/ui/Button';
+import { Card, CardContent, CardHeader, CardTitle } from '../../../../components/ui/Card';
+import { EmptyState } from '../../../../components/ui/EmptyState';
+import { ErrorState } from '../../../../components/ui/ErrorState';
+import { Input } from '../../../../components/ui/Input';
+import { Select } from '../../../../components/ui/Select';
+import { Skeleton, TableSkeleton } from '../../../../components/ui/Skeleton';
+import { fetchWithAuth } from '../../../../lib/auth-client';
+import { LayoutDashboard, Building, Users, ChevronRight, UserPlus, Key, Edit2, ShieldAlert, ShieldCheck } from 'lucide-react';
+import Link from 'next/link';
 
 type Role = 'BRANCH_ADMIN' | 'RECEPTIONIST' | 'COUNTER_OPERATOR' | 'DISPLAY_OPERATOR' | 'DOCTOR';
 type Status = 'ACTIVE' | 'SUSPENDED' | 'INVITED' | 'REMOVED';
@@ -71,6 +73,14 @@ export default function TeamMembersPage() {
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState('');
   const [temporaryPassword, setTemporaryPassword] = useState('');
+  const [passwordModalMember, setPasswordModalMember] = useState<TeamMember | null>(null);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [passwordSubmitting, setPasswordSubmitting] = useState(false);
+  const [passwordMessage, setPasswordMessage] = useState('');
+  const [passwordError, setPasswordError] = useState('');
 
   const activeCounters = useMemo(() => counters.filter((counter) => counter.status === 'ACTIVE'), [counters]);
 
@@ -215,6 +225,56 @@ export default function TeamMembersPage() {
     await loadMembers(organizationId);
   }
 
+  const passwordMinLength = 8;
+  const passwordValid = newPassword.length >= passwordMinLength;
+  const passwordsMatch = newPassword === confirmPassword && confirmPassword.length > 0;
+  const canSubmitPassword = passwordValid && passwordsMatch && !passwordSubmitting;
+
+  function openPasswordModal(member: TeamMember) {
+    setPasswordModalMember(member);
+    setNewPassword('');
+    setConfirmPassword('');
+    setShowNewPassword(false);
+    setShowConfirmPassword(false);
+    setPasswordMessage('');
+    setPasswordError('');
+  }
+
+  function closePasswordModal() {
+    setPasswordModalMember(null);
+    setNewPassword('');
+    setConfirmPassword('');
+    setShowNewPassword(false);
+    setShowConfirmPassword(false);
+    setPasswordMessage('');
+    setPasswordError('');
+  }
+
+  async function submitPasswordUpdate() {
+    if (!passwordModalMember || !canSubmitPassword) return;
+    setPasswordSubmitting(true);
+    setPasswordError('');
+    setPasswordMessage('');
+    try {
+      const response = await fetchWithAuth(
+        `/api/organizations/current/team-members/${passwordModalMember.id}/password`,
+        {
+          method: 'PATCH',
+          headers: { 'x-organization-id': organizationId },
+          body: JSON.stringify({ newPassword }),
+        },
+      );
+      if (response.status === 403) { setPasswordError('You do not have permission to update this password.'); return; }
+      if (response.status === 404) { setPasswordError('Team member not found.'); return; }
+      if (!response.ok) { setPasswordError('Unable to update password.'); return; }
+      setPasswordMessage('Password updated successfully.');
+      setNewPassword('');
+      setConfirmPassword('');
+    } finally {
+      setPasswordSubmitting(false);
+    }
+  }
+
   if (state === 'forbidden') {
     return (
       <main className="min-h-screen bg-slate-50 p-6">
@@ -236,23 +296,29 @@ export default function TeamMembersPage() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 p-4 sm:p-6 lg:p-8">
-      <div className="mx-auto max-w-7xl space-y-6">
-        <nav className="flex flex-wrap gap-3 text-sm font-semibold text-slate-500">
-          <a className="hover:text-slate-900" href="/dashboard">Dashboard</a>
-          <span>/</span>
-          <a className="hover:text-slate-900" href="/organization">Organization</a>
-          <span>/</span>
-          <span className="text-slate-900">Team Members</span>
-        </nav>
+    <>
+    <div className="space-y-8 pb-12">
+      <nav className="flex items-center gap-2 text-sm font-medium text-slate-500 overflow-x-auto pb-2 scrollbar-hide">
+        <Link href="/dashboard" className="flex items-center gap-1.5 hover:text-indigo-600 transition-colors px-2 py-1 rounded-md hover:bg-indigo-50 whitespace-nowrap">
+          <LayoutDashboard className="w-4 h-4" /> Dashboard
+        </Link>
+        <ChevronRight className="w-4 h-4 text-slate-300 flex-shrink-0" />
+        <Link href="/dashboard/organization" className="flex items-center gap-1.5 hover:text-indigo-600 transition-colors px-2 py-1 rounded-md hover:bg-indigo-50 whitespace-nowrap">
+          <Building className="w-4 h-4" /> Organization Settings
+        </Link>
+        <ChevronRight className="w-4 h-4 text-slate-300 flex-shrink-0" />
+        <span className="text-slate-900 font-semibold px-2 py-1 whitespace-nowrap flex items-center gap-1.5">
+          <Users className="w-4 h-4 text-indigo-600" /> Team Members
+        </span>
+      </nav>
 
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold tracking-tight text-slate-900">Team Members</h1>
-            <p className="mt-2 text-sm text-slate-500">Manage staff accounts, roles, branches and counter assignments.</p>
+            <p className="mt-1 text-slate-500">Manage staff accounts, roles, branches and counter assignments.</p>
           </div>
-          <Button type="button" onClick={startCreate}>
-            <span className="mr-2 text-lg leading-none">+</span>
+          <Button type="button" onClick={startCreate} className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm flex items-center gap-2">
+            <UserPlus className="w-4 h-4" />
             Add Member
           </Button>
         </div>
@@ -366,9 +432,14 @@ export default function TeamMembersPage() {
                         </td>
                         <td className="px-6 py-4">
                           <div className="flex justify-end gap-2">
-                            <Button type="button" size="sm" variant="outline" onClick={() => startEdit(member)}>Edit</Button>
-                            <Button type="button" size="sm" variant={member.status === 'ACTIVE' ? 'danger' : 'secondary'} onClick={() => void toggleStatus(member)}>
-                              {member.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}
+                            <Button type="button" size="sm" variant="outline" onClick={() => startEdit(member)} className="text-slate-600 hover:text-indigo-600" title="Edit">
+                              <Edit2 className="w-4 h-4" />
+                            </Button>
+                            <Button type="button" size="sm" variant="outline" onClick={() => openPasswordModal(member)} className="text-slate-600 hover:text-indigo-600" title="Update Password">
+                              <Key className="w-4 h-4" />
+                            </Button>
+                            <Button type="button" size="sm" variant="outline" onClick={() => void toggleStatus(member)} className={member.status === 'ACTIVE' ? 'text-slate-600 hover:text-amber-600' : 'text-slate-600 hover:text-emerald-600'} title={member.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}>
+                              {member.status === 'ACTIVE' ? <ShieldAlert className="w-4 h-4" /> : <ShieldCheck className="w-4 h-4" />}
                             </Button>
                           </div>
                         </td>
@@ -381,6 +452,127 @@ export default function TeamMembersPage() {
           </CardContent>
         </Card>
       </div>
-    </main>
+
+      {passwordModalMember && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-100 px-6 py-5">
+              <h3 className="text-lg font-semibold text-slate-900">Update Password</h3>
+              <button
+                type="button"
+                onClick={closePasswordModal}
+                className="rounded-lg p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+                aria-label="Close"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                </svg>
+              </button>
+            </div>
+            <div className="px-6 py-5">
+              <p className="mb-4 text-sm text-slate-600">
+                Set a new password for <span className="font-semibold text-slate-900">{passwordModalMember.displayName}</span>
+              </p>
+
+              {passwordMessage && (
+                <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
+                  {passwordMessage}
+                </div>
+              )}
+              {passwordError && (
+                <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+                  {passwordError}
+                </div>
+              )}
+
+              <form onSubmit={(e) => { e.preventDefault(); void submitPasswordUpdate(); }} className="space-y-4">
+                <div>
+                  <label className="mb-1.5 block text-sm font-semibold text-slate-700">New Password</label>
+                  <div className="relative">
+                    <input
+                      type={showNewPassword ? 'text' : 'password'}
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 pr-10 text-sm transition-colors hover:border-slate-300 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-100 focus:ring-offset-1"
+                      placeholder="Minimum 8 characters"
+                      autoComplete="new-password"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowNewPassword(!showNewPassword)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-slate-400 transition-colors hover:text-slate-600"
+                      aria-label={showNewPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {showNewPassword ? (
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M3.707 2.293a1 1 0 00-1.414 1.414l14 14a1 1 0 001.414-1.414l-1.473-1.473A10.014 10.014 0 0019.542 10C18.268 5.943 14.478 3 10 3a9.958 9.958 0 00-4.512 1.074l-1.78-1.781zm4.261 4.26l1.514 1.515a2.003 2.003 0 012.45 2.45l1.514 1.514a4 4 0 00-5.478-5.478z" clipRule="evenodd" />
+                          <path d="M12.454 16.697L9.75 13.992a4 4 0 01-3.742-3.741L2.335 6.578A9.98 9.98 0 00.458 10c1.274 4.057 5.065 7 9.542 7 .847 0 1.669-.105 2.454-.303z" />
+                        </svg>
+                      ) : (
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                          <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
+                          <path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" />
+                        </svg>
+                      )}
+                    </button>
+                  </div>
+                  {newPassword.length > 0 && !passwordValid && (
+                    <p className="mt-1.5 text-xs text-red-600">Password must be at least {passwordMinLength} characters</p>
+                  )}
+                  {passwordValid && (
+                    <p className="mt-1.5 text-xs text-emerald-600">Password strength: Good</p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="mb-1.5 block text-sm font-semibold text-slate-700">Confirm Password</label>
+                  <div className="relative">
+                    <input
+                      type={showConfirmPassword ? 'text' : 'password'}
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 pr-10 text-sm transition-colors hover:border-slate-300 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-100 focus:ring-offset-1"
+                      placeholder="Re-enter password"
+                      autoComplete="new-password"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-slate-400 transition-colors hover:text-slate-600"
+                      aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {showConfirmPassword ? (
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M3.707 2.293a1 1 0 00-1.414 1.414l14 14a1 1 0 001.414-1.414l-1.473-1.473A10.014 10.014 0 0019.542 10C18.268 5.943 14.478 3 10 3a9.958 9.958 0 00-4.512 1.074l-1.78-1.781zm4.261 4.26l1.514 1.515a2.003 2.003 0 012.45 2.45l1.514 1.514a4 4 0 00-5.478-5.478z" clipRule="evenodd" />
+                          <path d="M12.454 16.697L9.75 13.992a4 4 0 01-3.742-3.741L2.335 6.578A9.98 9.98 0 00.458 10c1.274 4.057 5.065 7 9.542 7 .847 0 1.669-.105 2.454-.303z" />
+                        </svg>
+                      ) : (
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                          <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
+                          <path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" />
+                        </svg>
+                      )}
+                    </button>
+                  </div>
+                  {confirmPassword.length > 0 && !passwordsMatch && (
+                    <p className="mt-1.5 text-xs text-red-600">Passwords do not match</p>
+                  )}
+                  {passwordsMatch && (
+                    <p className="mt-1.5 text-xs text-emerald-600">Passwords match</p>
+                  )}
+                </div>
+
+                <div className="flex justify-end gap-3 pt-2">
+                  <Button type="button" variant="outline" onClick={closePasswordModal}>Cancel</Button>
+                  <Button type="submit" disabled={!canSubmitPassword} isLoading={passwordSubmitting}>
+                    Update Password
+                  </Button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+      </>
   );
 }
