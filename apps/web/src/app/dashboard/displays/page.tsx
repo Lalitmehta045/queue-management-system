@@ -22,6 +22,8 @@ export default function DisplaysPage() {
   const [branchId, setBranchId] = useState('');
   const [displays, setDisplays] = useState<Display[]>([]);
   const [name, setName] = useState('');
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [state, setState] = useState<'loading' | 'ready' | 'empty' | 'error' | 'forbidden'>('loading');
   const [message, setMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -92,16 +94,39 @@ export default function DisplaysPage() {
     setMessage('');
     
     try {
+      let logoUrl: string | undefined;
+
+      if (logoFile) {
+        const formData = new FormData();
+        formData.append('file', logoFile);
+        const uploadResponse = await fetch('/api/upload', {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (!uploadResponse.ok) {
+          const err = await uploadResponse.json();
+          setMessage(err.error || 'Failed to upload logo.');
+          setIsSubmitting(false);
+          return;
+        }
+
+        const data = await uploadResponse.json();
+        logoUrl = data.url;
+      }
+
       const response = await fetchWithAuth(`/api/branches/${branchId}/displays`, { 
         method: 'POST', 
         headers: { 'x-organization-id': organizationId }, 
-        body: JSON.stringify({ name }) 
+        body: JSON.stringify({ name, logoUrl }) 
       });
       
       if (response.status === 403) { setState('forbidden'); return; }
       if (!response.ok) { setMessage('Unable to create display.'); return; }
       
       setName(''); 
+      setLogoFile(null);
+      setLogoPreview(null);
       setMessage('Display created successfully.');
       
       const result = await response.json() as Display;
@@ -255,6 +280,42 @@ export default function DisplaysPage() {
                   onChange={(e) => setName(e.target.value)} 
                   placeholder="e.g. Waiting Area TV" 
                 />
+                
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-slate-700">
+                    Logo <span className="text-slate-400 font-normal">(Optional)</span>
+                  </label>
+                  {logoPreview ? (
+                    <div className="flex items-center gap-4 p-3 border rounded-lg bg-slate-50">
+                      <div className="relative w-16 h-16 bg-white border rounded-md flex items-center justify-center overflow-hidden shrink-0">
+                        <img src={logoPreview} alt="Logo preview" className="max-w-full max-h-full object-contain" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-slate-900 truncate">{logoFile?.name}</p>
+                        <button type="button" onClick={() => { setLogoFile(null); setLogoPreview(null); }} className="text-xs text-red-600 hover:text-red-700 font-medium mt-1">Remove</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <input 
+                      type="file" 
+                      accept="image/png, image/jpeg, image/webp, image/svg+xml"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          if (file.size > 2 * 1024 * 1024) {
+                            setMessage('File size exceeds 2MB limit');
+                            return;
+                          }
+                          setLogoFile(file);
+                          setLogoPreview(URL.createObjectURL(file));
+                          setMessage('');
+                        }
+                      }}
+                      className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-teal-50 file:text-teal-700 hover:file:bg-teal-100 cursor-pointer border border-slate-200 rounded-md p-1"
+                    />
+                  )}
+                  <p className="text-xs text-slate-500">Supported formats: PNG, JPG, WebP, SVG. Max 2MB.</p>
+                </div>
                 <Button type="submit" className="w-full" isLoading={isSubmitting} disabled={!name.trim()}>
                   Create Display
                 </Button>

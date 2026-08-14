@@ -223,6 +223,7 @@ model Display {
   branchId  String   @db.Uuid
   publicId  String   @unique
   name      String
+  logoUrl   String?
   active    Boolean  @default(true)
   branch    Branch   @relation(fields: [branchId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   createdAt DateTime @default(now())

@@ -5,4 +5,8 @@ export class UpdateDisplayDto {
   @IsString()
   @Length(2, 120)
   name?: string;
+
+  @IsOptional()
+  @IsString()
+  logoUrl?: string;
 }

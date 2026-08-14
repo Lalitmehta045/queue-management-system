@@ -17,7 +17,7 @@ type PublicToken = { tokenLabel: string; counter: string; status: TokenStatus; s
 export class DisplaysService {
   private readonly requestWindows = new Map<string, { startedAt: number; count: number }>();
   private lastRateLimitCleanup = 0;
-  private readonly displaySelect = { id: true, branchId: true, publicId: true, name: true, active: true, createdAt: true, updatedAt: true } satisfies Prisma.DisplaySelect;
+  private readonly displaySelect = { id: true, branchId: true, publicId: true, name: true, logoUrl: true, active: true, createdAt: true, updatedAt: true } satisfies Prisma.DisplaySelect;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -34,7 +34,7 @@ export class DisplaysService {
           const currentCount = await tx.display.count({ where: { branch: { organizationId: tenant.organizationId } } });
           await this.entitlements.enforceLimit(tenant.organizationId, 'maxDisplays', currentCount, 1, tx);
 
-          return tx.display.create({ data: { branchId, name: dto.name.trim(), publicId: this.generatePublicId() }, select: this.displaySelect });
+          return tx.display.create({ data: { branchId, name: dto.name.trim(), logoUrl: dto.logoUrl, publicId: this.generatePublicId() }, select: this.displaySelect });
         });
       } catch (error: unknown) {
         if (this.isUniqueError(error) && attempt < 2) continue;
@@ -54,7 +54,7 @@ export class DisplaysService {
     await this.authorizeBranch(tenant, branchId);
     await this.getScopedDisplay(tenant.organizationId, branchId, displayId);
     try {
-      return await this.prisma.display.update({ where: { id: displayId }, data: dto.name === undefined ? {} : { name: dto.name.trim() }, select: this.displaySelect });
+      return await this.prisma.display.update({ where: { id: displayId }, data: { ...(dto.name !== undefined && { name: dto.name.trim() }), ...(dto.logoUrl !== undefined && { logoUrl: dto.logoUrl }) }, select: this.displaySelect });
     } catch (error: unknown) {
       this.handlePrismaError(error, 'Display could not be updated');
     }
@@ -119,12 +119,12 @@ export class DisplaysService {
   }
 
   private async resolveActiveDisplay(publicId: string) {
-    const display = await this.prisma.display.findFirst({ where: { publicId, active: true, branch: { status: 'ACTIVE' } }, select: { id: true, name: true, branchId: true } });
+    const display = await this.prisma.display.findFirst({ where: { publicId, active: true, branch: { status: 'ACTIVE' } }, select: { id: true, name: true, logoUrl: true, branchId: true } });
     if (!display) throw new NotFoundException('Display not found');
     return display;
   }
 
-  private async buildPublicSnapshot(display: { name: string; branchId: string }) {
+  private async buildPublicSnapshot(display: { name: string; logoUrl: string | null; branchId: string }) {
     const currentTokens = await this.prisma.token.findMany({
       where: { status: { in: [TokenStatus.CALLED, TokenStatus.SERVING] }, counterId: { not: null }, queueEntry: { service: { department: { branchId: display.branchId } } } },
       orderBy: [{ calledAt: 'desc' }, { id: 'desc' }],
@@ -195,7 +195,7 @@ export class DisplaysService {
       };
     });
 
-    return { display: { name: display.name }, current, recent, waitingSummary: { total: waitingTotal }, counters, updatedAt: new Date().toISOString() };
+    return { display: { name: display.name, logoUrl: display.logoUrl }, current, recent, waitingSummary: { total: waitingTotal }, counters, updatedAt: new Date().toISOString() };
   }
 
   private async authorizeBranch(tenant: Tenant, branchId: string) {

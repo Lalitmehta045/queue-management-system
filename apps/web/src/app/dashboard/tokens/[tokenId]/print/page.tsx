@@ -228,32 +228,38 @@ function PrintTicketPage() {
         </div>
       </div>
       
-      <div className="my-8 print:my-0 print:shadow-none w-full max-w-sm bg-white shadow-xl p-8 print:p-0 print:w-[80mm] print:mx-auto">
-        <div className="receipt-content flex flex-col text-center">
+      <style dangerouslySetInnerHTML={{ __html: `
+        @media print {
+          @page { margin: 0; }
+          body { margin: 0; padding: 2mm; }
+        }
+      `}} />
+      <div className="my-8 print:my-0 print:shadow-none w-full max-w-sm bg-white shadow-xl p-8 print:p-0 print:w-full print:max-w-full">
+        <div className="receipt-content flex flex-col text-center print:px-2">
           
-          <div className="mb-6 w-full">
-            <h1 className="text-xl font-bold uppercase tracking-widest text-black">{ticket.organization.name}</h1>
+          <div className="mb-4 w-full">
+            <h1 className="text-lg font-bold uppercase text-black break-words">{ticket.organization.name}</h1>
           </div>
 
-          <div className="w-full flex justify-between text-xs text-black font-medium mb-8 uppercase tracking-wider">
+          <div className="w-full flex justify-between text-xs text-black font-medium mb-6 uppercase">
             <span>Date: {dateStr}</span>
             <span>Time: {timeStr}</span>
           </div>
 
-          <div className="mb-8 w-full text-center">
-            <div className="text-[6rem] font-black leading-none tracking-tighter text-black">
+          <div className="mb-6 w-full text-center">
+            <div className="text-[5rem] print:text-[4rem] font-black leading-none tracking-tighter text-black break-words">
               {ticket.token.displayNumber}
             </div>
           </div>
 
-          <div className="w-full flex flex-col items-center mb-8">
+          <div className="w-full flex flex-col items-center mb-6">
             <div className="p-1 bg-white">
-              <QRCode value={`${origin}/queue/${tokenId}`} size={120} level="M" fgColor="#000000" />
+              <QRCode value={`${origin}/queue/${tokenId}`} size={100} level="M" fgColor="#000000" />
             </div>
           </div>
 
           <div className="w-full text-center">
-            <p className="text-sm font-bold text-black uppercase tracking-widest">
+            <p className="text-sm font-bold text-black uppercase">
               Please wait for your turn
             </p>
           </div>
