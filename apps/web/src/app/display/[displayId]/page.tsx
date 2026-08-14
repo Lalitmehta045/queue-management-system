@@ -367,7 +367,7 @@ export default function PublicDisplayPage({ params }: { params: Promise<{ displa
                   <p className="text-xs font-bold text-slate-500 tracking-[0.2em] uppercase">Waiting Queue</p>
                   <div className="w-2 h-2 rounded-full bg-slate-300"></div>
                 </div>
-                <div className="flex-1 overflow-hidden p-3 flex flex-col items-center min-h-[150px]">
+                <div className="w-full overflow-hidden p-3 flex flex-col items-center max-h-[260px]">
                   {c.waitingTokens && c.waitingTokens.length > 0 ? (
                     <AutoScrollList>
                       {c.waitingTokens.map((wt, i) => (
