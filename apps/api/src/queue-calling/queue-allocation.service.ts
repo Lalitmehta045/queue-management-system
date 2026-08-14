@@ -81,4 +81,62 @@ export class QueueAllocationService {
       }
     }
   }
+
+  async backfillUnassignedWaitingTokens(tx: Prisma.TransactionClient, branchId: string, previewOnly: boolean = false) {
+    const counters = await tx.counter.findMany({
+      where: { branchId, status: CounterStatus.ACTIVE },
+      select: { id: true, code: true, name: true },
+      orderBy: { code: 'asc' },
+    });
+
+    const summary: Record<string, number> = {};
+    for (const c of counters) summary[`${c.name} (${c.code})`] = 0;
+
+    const unassignedTokens = await tx.token.findMany({
+      where: {
+        status: 'WAITING',
+        counterId: null,
+        queueEntry: { service: { department: { branchId } } },
+      },
+      select: { id: true, displayNumber: true },
+      orderBy: [
+        { queueEntry: { priorityWeight: 'desc' } },
+        { businessDate: 'asc' },
+        { sequenceNumber: 'asc' },
+        { id: 'asc' },
+      ],
+    });
+
+    if (previewOnly) {
+      return { counters, unassignedTokens, summary, wouldAssign: unassignedTokens.length };
+    }
+
+    if (!counters.length || !unassignedTokens.length) {
+      return { summary, totalAssigned: 0, skippedAssigned: 0, counters, unassignedTokens };
+    }
+
+    let totalAssigned = 0;
+    let skippedAssigned = 0;
+
+    for (let i = 0; i < unassignedTokens.length; i++) {
+      const token = unassignedTokens[i]!;
+      const targetCounter = counters[i % counters.length]!;
+
+      // Concurrency safety: ensure counterId is STILL null and status is STILL WAITING.
+      const result = await tx.token.updateMany({
+        where: { id: token.id, counterId: null, status: 'WAITING' },
+        data: { counterId: targetCounter.id },
+      });
+
+      if (result.count === 1) {
+        const key = `${targetCounter.name} (${targetCounter.code})`;
+        summary[key] = (summary[key] || 0) + 1;
+        totalAssigned += 1;
+      } else {
+        skippedAssigned += 1;
+      }
+    }
+
+    return { summary, totalAssigned, skippedAssigned, counters, unassignedTokens };
+  }
 }

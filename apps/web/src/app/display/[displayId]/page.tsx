@@ -14,6 +14,70 @@ import {
 
 const displayEventTypes = ['QUEUE_UPDATED', 'TOKEN_CALLED', 'TOKEN_SERVED', 'TOKEN_RECALLED', 'TOKEN_SKIPPED', 'TOKEN_COMPLETED'] as const;
 
+function AutoScrollList({ children }: { children: React.ReactNode }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [isOverflowing, setIsOverflowing] = useState(false);
+  const [duration, setDuration] = useState(20);
+
+  useEffect(() => {
+    const checkOverflow = () => {
+      if (containerRef.current && contentRef.current) {
+        const overflow = contentRef.current.scrollHeight > containerRef.current.clientHeight;
+        setIsOverflowing(overflow);
+        if (overflow) {
+          // Calculate duration based on height to maintain consistent speed
+          setDuration(Math.max(contentRef.current.scrollHeight / 30, 5));
+        }
+      }
+    };
+    
+    checkOverflow();
+    const observer = new ResizeObserver(checkOverflow);
+    if (containerRef.current) observer.observe(containerRef.current);
+    if (contentRef.current) observer.observe(contentRef.current);
+    
+    return () => observer.disconnect();
+  }, [children]);
+
+  return (
+    <div 
+      ref={containerRef} 
+      className="w-full flex-1 min-h-0 overflow-hidden relative group"
+      style={{
+         maskImage: isOverflowing ? 'linear-gradient(to bottom, transparent, black 5%, black 95%, transparent)' : 'none',
+         WebkitMaskImage: isOverflowing ? 'linear-gradient(to bottom, transparent, black 5%, black 95%, transparent)' : 'none'
+      }}
+    >
+      <div 
+        className={isOverflowing ? 'animate-marquee-vertical group-hover:[animation-play-state:paused]' : ''}
+        style={{
+          '--marquee-duration': `${duration}s`
+        } as React.CSSProperties}
+      >
+        <div ref={contentRef} className="w-full flex flex-col items-center gap-3 pb-3">
+          {children}
+        </div>
+        
+        {isOverflowing && (
+          <div aria-hidden="true" className="w-full flex flex-col items-center gap-3 pb-3">
+            {children}
+          </div>
+        )}
+      </div>
+      <style dangerouslySetInnerHTML={{__html: `
+        @keyframes marquee-vertical {
+          0% { transform: translateY(0); }
+          100% { transform: translateY(-50%); }
+        }
+        .animate-marquee-vertical {
+          animation: marquee-vertical var(--marquee-duration) linear infinite;
+        }
+      `}} />
+    </div>
+  );
+}
+
 export default function PublicDisplayPage({ params }: { params: Promise<{ displayId: string }> }) {
   const { displayId } = use(params);
   const [snapshot, setSnapshot] = useState<DisplaySnapshot | null>(null);
@@ -22,11 +86,11 @@ export default function PublicDisplayPage({ params }: { params: Promise<{ displa
   const [announcementSettings, setAnnouncementSettings] = useState<AnnouncementSettings>(() => loadAnnouncementSettings());
   const [voiceUnavailable, setVoiceUnavailable] = useState(false);
   const [currentTime, setCurrentTime] = useState<Date | null>(null);
-  
+
   const snapshotRef = useRef<DisplaySnapshot | null>(null);
   const speakerRef = useRef<AnnouncementSpeaker | null>(null);
   const settingsRef = useRef<AnnouncementSettings>(announcementSettings);
-  
+
   const supportsSpeech = speechSupported();
 
   useEffect(() => {
@@ -68,13 +132,13 @@ export default function PublicDisplayPage({ params }: { params: Promise<{ displa
     if (!displayId) return;
     let cancelled = false;
     const source = new EventSource(`/api/public/displays/${encodeURIComponent(displayId)}/events`);
-    
+
     const handleSnapshot = (eventType: (typeof displayEventTypes)[number]) => (event: MessageEvent<string>) => {
       const next = JSON.parse(event.data) as DisplaySnapshot;
       console.log('--- SSE PAYLOAD RECEIVED ---', eventType);
       console.log(JSON.stringify(next, null, 2));
       if (cancelled) return;
-      
+
       setSnapshot((previous) => {
         if (previous?.current?.tokenLabel !== next.current?.tokenLabel || previous?.current?.recallCount !== next.current?.recallCount) {
           setLastToken(next.current?.tokenLabel ?? '');
@@ -83,9 +147,9 @@ export default function PublicDisplayPage({ params }: { params: Promise<{ displa
         snapshotRef.current = next;
         return next;
       });
-      
+
       setState('ready');
-      
+
       if ((eventType === 'TOKEN_CALLED' || eventType === 'TOKEN_RECALLED') && next.current) {
         const current = next.current;
         const settings = settingsRef.current;
@@ -95,16 +159,16 @@ export default function PublicDisplayPage({ params }: { params: Promise<{ displa
         }
       }
     };
-    
+
     const handlers = displayEventTypes.map((eventType) => ({ eventType, handler: handleSnapshot(eventType) }));
     for (const { eventType, handler } of handlers) {
       source.addEventListener(eventType, handler);
     }
-    
+
     source.onopen = () => {
       if (!cancelled && snapshotRef.current) setState('ready');
     };
-    
+
     source.onerror = () => {
       if (!cancelled) setState(snapshotRef.current ? 'reconnecting' : 'error');
     };
@@ -142,20 +206,20 @@ export default function PublicDisplayPage({ params }: { params: Promise<{ displa
   if (state === 'loading' || !snapshot) {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col font-sans p-6 overflow-hidden">
-         <div className="animate-pulse h-20 bg-white rounded-xl mb-6 border border-slate-100 flex items-center px-8">
-            <div className="w-12 h-12 bg-slate-200 rounded mr-4"></div>
-            <div className="h-6 w-64 bg-slate-200 rounded"></div>
-            <div className="ml-auto h-6 w-48 bg-slate-200 rounded"></div>
-         </div>
-         <div className="animate-pulse flex-1 bg-white rounded-xl mb-6 border border-slate-100 flex items-center justify-center">
-            <div className="h-32 w-64 bg-slate-200 rounded-lg"></div>
-         </div>
-         <div className="animate-pulse h-64 bg-white rounded-xl border border-slate-100 flex gap-4 p-6">
-            <div className="flex-1 bg-slate-100 rounded-lg"></div>
-            <div className="flex-1 bg-slate-100 rounded-lg"></div>
-            <div className="flex-1 bg-slate-100 rounded-lg"></div>
-            <div className="flex-1 bg-slate-100 rounded-lg"></div>
-         </div>
+        <div className="animate-pulse h-20 bg-white rounded-xl mb-6 border border-slate-100 flex items-center px-8">
+          <div className="w-12 h-12 bg-slate-200 rounded mr-4"></div>
+          <div className="h-6 w-64 bg-slate-200 rounded"></div>
+          <div className="ml-auto h-6 w-48 bg-slate-200 rounded"></div>
+        </div>
+        <div className="animate-pulse flex-1 bg-white rounded-xl mb-6 border border-slate-100 flex items-center justify-center">
+          <div className="h-32 w-64 bg-slate-200 rounded-lg"></div>
+        </div>
+        <div className="animate-pulse h-64 bg-white rounded-xl border border-slate-100 flex gap-4 p-6">
+          <div className="flex-1 bg-slate-100 rounded-lg"></div>
+          <div className="flex-1 bg-slate-100 rounded-lg"></div>
+          <div className="flex-1 bg-slate-100 rounded-lg"></div>
+          <div className="flex-1 bg-slate-100 rounded-lg"></div>
+        </div>
       </div>
     );
   }
@@ -186,12 +250,12 @@ export default function PublicDisplayPage({ params }: { params: Promise<{ displa
       <header className="flex justify-between items-center px-8 py-5 bg-gradient-to-r from-blue-900 via-indigo-900 to-purple-900 shrink-0 shadow-lg z-10 border-b border-white/10">
         <div className="flex items-center gap-4">
           <div className="w-14 h-14 bg-white/10 backdrop-blur-md flex flex-col justify-end items-center rounded-xl overflow-hidden pb-1 border border-white/20 shadow-inner">
-             <div className="flex space-x-1.5 mb-1.5">
-               <div className="w-2.5 h-2.5 rounded-full bg-blue-300 shadow-[0_0_8px_rgba(147,197,253,0.8)]"></div>
-               <div className="w-2.5 h-2.5 rounded-full bg-purple-300 shadow-[0_0_8px_rgba(216,180,254,0.8)]"></div>
-               <div className="w-2.5 h-2.5 rounded-full bg-pink-300 shadow-[0_0_8px_rgba(249,168,212,0.8)]"></div>
-             </div>
-             <div className="w-10 h-2.5 bg-white/30 rounded-t-sm"></div>
+            <div className="flex space-x-1.5 mb-1.5">
+              <div className="w-2.5 h-2.5 rounded-full bg-blue-300 shadow-[0_0_8px_rgba(147,197,253,0.8)]"></div>
+              <div className="w-2.5 h-2.5 rounded-full bg-purple-300 shadow-[0_0_8px_rgba(216,180,254,0.8)]"></div>
+              <div className="w-2.5 h-2.5 rounded-full bg-pink-300 shadow-[0_0_8px_rgba(249,168,212,0.8)]"></div>
+            </div>
+            <div className="w-10 h-2.5 bg-white/30 rounded-t-sm"></div>
           </div>
           <div className="flex flex-col">
             <h1 className="text-[1.7rem] font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-100 to-purple-200 tracking-tight leading-none uppercase drop-shadow-sm">
@@ -219,9 +283,9 @@ export default function PublicDisplayPage({ params }: { params: Promise<{ displa
         <div className="w-1/4 flex flex-col items-center justify-center text-center border-r border-indigo-100/50 pr-8">
           <div className={`p-6 rounded-3xl mb-4 transition-all duration-500 shadow-lg ${announcementSettings.enabled ? 'bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-blue-500/30' : 'bg-slate-100 text-slate-400 shadow-slate-200/50'}`}>
             {announcementSettings.enabled ? (
-              <svg className="w-20 h-20 drop-shadow-md" fill="currentColor" viewBox="0 0 24 24"><path d="M13 5v14l-5-4H3V9h5l5-4zm2.5 7c0-1.7-.9-3.2-2.3-4l-.7 1.4c1 1.6.3 3.6-1.3 4.6l.7 1.4c1.8-1 3-2.9 3-3.4zM18 12c0-3.3-1.8-6.2-4.5-7.7l-.8 1.4c2.1 1.2 3.5 3.5 3.5 6s-1.4 4.8-3.5 6l.8 1.4C16.2 17.6 18 14.8 18 12z"/></svg>
+              <svg className="w-20 h-20 drop-shadow-md" fill="currentColor" viewBox="0 0 24 24"><path d="M13 5v14l-5-4H3V9h5l5-4zm2.5 7c0-1.7-.9-3.2-2.3-4l-.7 1.4c1 1.6.3 3.6-1.3 4.6l.7 1.4c1.8-1 3-2.9 3-3.4zM18 12c0-3.3-1.8-6.2-4.5-7.7l-.8 1.4c2.1 1.2 3.5 3.5 3.5 6s-1.4 4.8-3.5 6l.8 1.4C16.2 17.6 18 14.8 18 12z" /></svg>
             ) : (
-              <svg className="w-20 h-20 drop-shadow-sm" fill="currentColor" viewBox="0 0 24 24"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>
+              <svg className="w-20 h-20 drop-shadow-sm" fill="currentColor" viewBox="0 0 24 24"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z" /></svg>
             )}
           </div>
           <h3 className="font-extrabold text-slate-800 text-xl tracking-tight">Audio Announcement</h3>
@@ -246,31 +310,31 @@ export default function PublicDisplayPage({ params }: { params: Promise<{ displa
         </div>
 
         <div className="w-1/4 flex flex-col items-center justify-center border-l border-indigo-100/50 pl-8 relative">
-           <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-pink-100/40 via-transparent to-transparent blur-xl pointer-events-none"></div>
-           <svg className="w-full max-w-[220px] drop-shadow-xl z-10" viewBox="0 0 100 80" fill="none">
-              <defs>
-                <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor="#4f46e5" />
-                  <stop offset="100%" stopColor="#ec4899" />
-                </linearGradient>
-                <linearGradient id="grad2" x1="0%" y1="0%" x2="100%" y2="0%">
-                  <stop offset="0%" stopColor="#3b82f6" />
-                  <stop offset="100%" stopColor="#8b5cf6" />
-                </linearGradient>
-              </defs>
-              <circle cx="25" cy="30" r="7" fill="url(#grad1)" opacity="0.9" />
-              <circle cx="50" cy="25" r="7" fill="url(#grad1)" opacity="0.7" />
-              <circle cx="75" cy="30" r="7" fill="url(#grad1)" opacity="0.9" />
-              <path d="M15 50 Q25 38 35 50 Z" fill="url(#grad2)" opacity="0.8" />
-              <path d="M40 45 Q50 33 60 45 Z" fill="url(#grad2)" opacity="0.6" />
-              <path d="M65 50 Q75 38 85 50 Z" fill="url(#grad2)" opacity="0.8" />
-              <rect x="5" y="50" width="90" height="12" rx="4" fill="url(#grad2)" />
-              <rect x="0" y="62" width="100" height="4" rx="2" fill="#e2e8f0" />
-              
-              <path d="M85 70 Q90 60 88 50 Q92 52 95 65 Z" fill="url(#grad1)" opacity="0.8" />
-              <path d="M85 70 Q80 60 82 50 Q78 52 75 65 Z" fill="url(#grad1)" opacity="0.6" />
-              <rect x="83" y="66" width="4" height="14" rx="2" fill="#312e81" />
-           </svg>
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-pink-100/40 via-transparent to-transparent blur-xl pointer-events-none"></div>
+          <svg className="w-full max-w-[220px] drop-shadow-xl z-10" viewBox="0 0 100 80" fill="none">
+            <defs>
+              <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#4f46e5" />
+                <stop offset="100%" stopColor="#ec4899" />
+              </linearGradient>
+              <linearGradient id="grad2" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stopColor="#3b82f6" />
+                <stop offset="100%" stopColor="#8b5cf6" />
+              </linearGradient>
+            </defs>
+            <circle cx="25" cy="30" r="7" fill="url(#grad1)" opacity="0.9" />
+            <circle cx="50" cy="25" r="7" fill="url(#grad1)" opacity="0.7" />
+            <circle cx="75" cy="30" r="7" fill="url(#grad1)" opacity="0.9" />
+            <path d="M15 50 Q25 38 35 50 Z" fill="url(#grad2)" opacity="0.8" />
+            <path d="M40 45 Q50 33 60 45 Z" fill="url(#grad2)" opacity="0.6" />
+            <path d="M65 50 Q75 38 85 50 Z" fill="url(#grad2)" opacity="0.8" />
+            <rect x="5" y="50" width="90" height="12" rx="4" fill="url(#grad2)" />
+            <rect x="0" y="62" width="100" height="4" rx="2" fill="#e2e8f0" />
+
+            <path d="M85 70 Q90 60 88 50 Q92 52 95 65 Z" fill="url(#grad1)" opacity="0.8" />
+            <path d="M85 70 Q80 60 82 50 Q78 52 75 65 Z" fill="url(#grad1)" opacity="0.6" />
+            <rect x="83" y="66" width="4" height="14" rx="2" fill="#312e81" />
+          </svg>
         </div>
       </section>
 
@@ -305,7 +369,7 @@ export default function PublicDisplayPage({ params }: { params: Promise<{ displa
                 </div>
                 <div className="flex-1 overflow-y-auto max-h-[200px] p-5 flex flex-col items-center">
                   {c.waitingTokens && c.waitingTokens.length > 0 ? (
-                    <div className="flex flex-col gap-3 w-full items-center">
+                    <AutoScrollList>
                       {c.waitingTokens.map((wt, i) => (
                         <div key={i} className="text-xl font-bold text-slate-700 bg-slate-50 w-full text-center py-2 rounded-xl border border-slate-100 shadow-sm">
                           {wt.tokenLabel}
@@ -316,7 +380,7 @@ export default function PublicDisplayPage({ params }: { params: Promise<{ displa
                           {c.waitingTokens.length} Waiting
                         </div>
                       </div>
-                    </div>
+                    </AutoScrollList>
                   ) : (
                     <div className="flex-1 flex items-center justify-center text-slate-300 font-medium py-8 text-sm uppercase tracking-wider">
                       No waiting tokens

@@ -153,32 +153,36 @@ export class DisplaysService {
       select: this.publicTokenSelect,
     });
     
-    const waitingTokens = await this.prisma.token.findMany({
-      where: { status: TokenStatus.WAITING, counterId: { not: null }, queueEntry: { status: 'WAITING', service: { department: { branchId: display.branchId } } } },
-      orderBy: [{ queueEntry: { priorityWeight: 'desc' } }, { businessDate: 'asc' }, { sequenceNumber: 'asc' }, { id: 'asc' }],
-      select: this.publicTokenSelect,
-    });
+    const countersRaw = await Promise.all(branchCounters.map(async (counter) => {
+      const nowToken = activeCountersTokens.find((t) => t.counterId === counter.id);
+      
+      const counterWaitingTokens = await this.prisma.token.findMany({
+        where: { status: TokenStatus.WAITING, counterId: counter.id },
+        orderBy: [{ queueEntry: { priorityWeight: 'desc' } }, { businessDate: 'asc' }, { sequenceNumber: 'asc' }, { id: 'asc' }],
+        select: this.publicTokenSelect,
+      });
 
+      return { counter, nowToken, counterWaitingTokens };
+    }));
 
-
-    const nextTokenMap = new Map<string, PublicToken>();
-    for (const t of waitingTokens) {
-      if (t.counterId && !nextTokenMap.has(t.counterId)) {
-        nextTokenMap.set(t.counterId, this.toPublicToken(t));
+    if (process.env.NODE_ENV !== 'production') {
+      const seenTokenIds = new Map<string, string>();
+      for (const c of countersRaw) {
+        for (const t of c.counterWaitingTokens) {
+          if (seenTokenIds.has(t.id)) {
+            console.error(`DUPLICATE TOKEN IN PUBLIC SNAPSHOT\ntokenId: ${t.id}\ntokenLabel: ${t.displayNumber}\ncounters: ${seenTokenIds.get(t.id)}, ${c.counter.code}`);
+          }
+          seenTokenIds.set(t.id, c.counter.code);
+        }
       }
     }
 
-    const counters = branchCounters.map((counter) => {
-      const nowToken = activeCountersTokens.find((t) => t.counterId === counter.id);
-      const nextToken = nextTokenMap.get(counter.id) || null;
+    const counters = countersRaw.map(({ counter, nowToken, counterWaitingTokens }) => {
+      const nextToken = counterWaitingTokens.length > 0 ? this.toPublicToken(counterWaitingTokens[0]!) : null;
       
-      const counterWaiting = waitingTokens
-        .filter((t) => t.counterId === counter.id)
+      const waitingTokensFiltered = counterWaitingTokens
+        .slice(1)
         .map((t) => this.toPublicToken(t));
-        
-      const waitingTokensFiltered = counterWaiting.filter(
-        (t) => t.tokenLabel !== nextToken?.tokenLabel
-      );
 
       return {
         id: counter.id,
