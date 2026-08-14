@@ -367,7 +367,7 @@ export default function PublicDisplayPage({ params }: { params: Promise<{ displa
                   <p className="text-xs font-bold text-slate-500 tracking-[0.2em] uppercase">Waiting Queue</p>
                   <div className="w-2 h-2 rounded-full bg-slate-300"></div>
                 </div>
-                <div className="flex-1 overflow-y-auto max-h-[200px] p-5 flex flex-col items-center">
+                <div className="flex-1 overflow-hidden p-3 flex flex-col items-center min-h-[150px]">
                   {c.waitingTokens && c.waitingTokens.length > 0 ? (
                     <AutoScrollList>
                       {c.waitingTokens.map((wt, i) => (
@@ -394,11 +394,11 @@ export default function PublicDisplayPage({ params }: { params: Promise<{ displa
       </section>
 
       {/* FOOTER & LEGEND */}
-      <footer className="shrink-0 flex flex-col mt-auto pb-6 px-6">
-        <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-purple-900 text-white py-5 px-8 flex items-center justify-center gap-4 shadow-2xl rounded-2xl border border-white/10 relative overflow-hidden">
+      <footer className="shrink-0 flex flex-col mt-auto pb-3 px-4">
+        <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-purple-900 text-white py-3 px-6 flex items-center justify-center gap-3 shadow-2xl rounded-2xl border border-white/10 relative overflow-hidden">
           <div className="absolute inset-0 bg-[linear-gradient(45deg,transparent_25%,rgba(255,255,255,0.1)_50%,transparent_75%,transparent_100%)] bg-[length:250px_250px] animate-[gradient_3s_linear_infinite]"></div>
-          <svg className="w-10 h-10 text-blue-300 z-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-          <span className="text-3xl font-black tracking-[0.15em] uppercase z-10 drop-shadow-md bg-clip-text text-transparent bg-gradient-to-r from-white to-blue-100">
+          <svg className="w-6 h-6 text-blue-300 z-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+          <span className="text-xl font-black tracking-[0.15em] uppercase z-10 drop-shadow-md bg-clip-text text-transparent bg-gradient-to-r from-white to-blue-100">
             Thank you. Please wait for your turn.
           </span>
         </div>
