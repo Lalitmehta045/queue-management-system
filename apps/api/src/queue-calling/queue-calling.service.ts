@@ -159,18 +159,6 @@ export class QueueCallingService {
     return token;
   }
 
-  async serve(tenant: Tenant, userId: string, branchId: string, counterId: string, auditContext?: AuditContext) {
-    const counter = await this.authorizeCounter(tenant, userId, branchId, counterId);
-    const current = await this.findCurrent(tenant.organizationId, branchId, counter.id);
-    if (!current) throw new ConflictException('Counter has no active token');
-    const updated = await this.prisma.token.updateMany({ where: { id: current.id, counterId: counter.id, status: TokenStatus.CALLED }, data: { status: TokenStatus.SERVING, servingAt: new Date() } });
-    if (updated.count !== 1) throw new ConflictException('Token is not in CALLED state');
-    const token = await this.current(tenant, userId, branchId, counter.id);
-    this.displayEvents.publish(counter.branchId, 'TOKEN_SERVED');
-    if (token && auditContext) await this.auditToken(auditContext, tenant.organizationId, counter.branchId, AuditAction.TOKEN_SERVED, token, userId);
-    return token;
-  }
-
   async skip(tenant: Tenant, userId: string, branchId: string, counterId: string, auditContext?: AuditContext) {
     const counter = await this.authorizeCounter(tenant, userId, branchId, counterId);
     const current = await this.findCurrent(tenant.organizationId, branchId, counter.id);

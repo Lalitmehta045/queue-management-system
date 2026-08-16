@@ -158,7 +158,7 @@ export default function CounterWorkspacePage() {
     }
   }
 
-  async function handleAction(action: 'call-next' | 'serve' | 'recall' | 'skip' | 'complete') {
+  async function handleAction(action: 'call-next' | 'recall' | 'skip' | 'complete') {
     if (isSubmitting) return;
     setIsSubmitting(true);
     setSubmittingAction(action);
@@ -383,18 +383,7 @@ export default function CounterWorkspacePage() {
                 </div>
                 
                 <div className="flex flex-col sm:flex-row items-center justify-center gap-4 max-w-lg mx-auto">
-                  {current.status === 'CALLED' && (
-                    <Button 
-                      size="lg" 
-                      className="w-full h-14 text-base font-bold bg-teal-600 hover:bg-teal-700 shadow-lg shadow-teal-600/20 rounded-xl transition-all active:scale-[0.98]" 
-                      disabled={isSubmitting} 
-                      isLoading={isSubmitting && submittingAction === 'serve'} 
-                      onClick={() => void handleAction('serve')}
-                    >
-                      SERVE
-                    </Button>
-                  )}
-                  {current.status === 'SERVING' && (
+                  {(current.status === 'CALLED' || current.status === 'SERVING') && (
                     <Button 
                       size="lg" 
                       className="w-full h-14 text-base font-bold bg-teal-600 hover:bg-teal-700 shadow-lg shadow-teal-600/20 rounded-xl transition-all active:scale-[0.98]" 

@@ -122,11 +122,10 @@ describe('Queue calling (e2e)', () => {
   it('executes CALL, SERVE, RECALL, SKIP, and COMPLETE with safe transitions', async () => {
     const called = await tenantRequest(operatorOneToken, orgA).post(`/branches/${branchA1}/counters/${counterA1}/tokens/${tokenA1}/call`).send({}).expect(201);
     expect((called.body as TokenResponse).status).toBe(TokenStatus.CALLED);
-    await tenantRequest(operatorOneToken, orgA).post(`/branches/${branchA1}/counters/${counterA1}/current/serve`).expect(201);
     const recalled = await tenantRequest(operatorOneToken, orgA).post(`/branches/${branchA1}/counters/${counterA1}/current/recall`).expect(201);
     expect((recalled.body as TokenResponse & { recallCount: number }).recallCount).toBe(1);
     const current = await tenantRequest(operatorOneToken, orgA).get(`/branches/${branchA1}/counters/${counterA1}/current`).expect(200);
-    expect((current.body as TokenResponse).status).toBe(TokenStatus.SERVING);
+    expect((current.body as TokenResponse).status).toBe(TokenStatus.CALLED);
     const completed = await tenantRequest(operatorOneToken, orgA).post(`/branches/${branchA1}/counters/${counterA1}/current/complete`).expect(201);
     expect((completed.body as TokenResponse).status).toBe(TokenStatus.COMPLETED);
     const emptyCurrent = await tenantRequest(operatorOneToken, orgA).get(`/branches/${branchA1}/counters/${counterA1}/current`).expect(200);

@@ -34,7 +34,7 @@ export class DisplaysService {
           const currentCount = await tx.display.count({ where: { branch: { organizationId: tenant.organizationId } } });
           await this.entitlements.enforceLimit(tenant.organizationId, 'maxDisplays', currentCount, 1, tx);
 
-          return tx.display.create({ data: { branchId, name: dto.name.trim(), logoUrl: dto.logoUrl, publicId: this.generatePublicId() }, select: this.displaySelect });
+          return tx.display.create({ data: { branchId, name: dto.name.trim(), publicId: this.generatePublicId(), ...(dto.logoUrl !== undefined && { logoUrl: dto.logoUrl }) }, select: this.displaySelect });
         });
       } catch (error: unknown) {
         if (this.isUniqueError(error) && attempt < 2) continue;

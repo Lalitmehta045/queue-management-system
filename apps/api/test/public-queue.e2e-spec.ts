@@ -176,9 +176,6 @@ describe('Public Queue Status (e2e)', () => {
     resC = await request(server).get(`/public/queue/${tokenC.id}`).expect(200);
     expect((resC.body as PublicQueueSnapshot).peopleAhead).toBe(1);
 
-    // Serve tokenA
-    await tenantRequest(adminToken, orgA).post(`/branches/${branchA}/counters/${counterA}/current/serve`).expect(201);
-
     // Complete tokenA
     await tenantRequest(adminToken, orgA).post(`/branches/${branchA}/counters/${counterA}/current/complete`).expect(201);
 
@@ -209,11 +206,6 @@ describe('Public Queue Status (e2e)', () => {
     expect((event.data as PublicQueueSnapshot).status).toBe(TokenStatus.CALLED);
     expect((event.data as PublicQueueSnapshot).currentServingToken).toBe(tokenB.displayNumber);
     expect((event.data as PublicQueueSnapshot).peopleAhead).toBeNull();
-
-    // Serve token
-    await tenantRequest(adminToken, orgA).post(`/branches/${branchA}/counters/${counterA}/current/serve`).expect(201);
-    event = await events.nextEvent('TOKEN_SERVED');
-    expect((event.data as PublicQueueSnapshot).status).toBe(TokenStatus.SERVING);
 
     // Complete token
     await tenantRequest(adminToken, orgA).post(`/branches/${branchA}/counters/${counterA}/current/complete`).expect(201);

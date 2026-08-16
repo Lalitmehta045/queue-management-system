@@ -51,12 +51,6 @@ export class QueueCallingController {
     return this.queueCallingService.recall(requiredTenant, user.userId, branchId, counterId, getAuditContext(requiredTenant, user, request));
   }
 
-  @Post('current/serve')
-  serve(@CurrentTenant() tenant: AuthenticatedRequest['tenant'], @CurrentUser() user: { userId: string }, @Req() request: AuthenticatedRequest, @Param('branchId') branchId: string, @Param('counterId') counterId: string) {
-    const requiredTenant = this.requireTenant(tenant);
-    return this.queueCallingService.serve(requiredTenant, user.userId, branchId, counterId, getAuditContext(requiredTenant, user, request));
-  }
-
   @Post('current/skip')
   skip(@CurrentTenant() tenant: AuthenticatedRequest['tenant'], @CurrentUser() user: { userId: string }, @Req() request: AuthenticatedRequest, @Param('branchId') branchId: string, @Param('counterId') counterId: string) {
     const requiredTenant = this.requireTenant(tenant);

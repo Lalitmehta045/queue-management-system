@@ -168,10 +168,6 @@ describe('Public displays (e2e)', () => {
     expect(calledSnapshot.data.current).toEqual(expect.objectContaining({ tokenLabel: tokenA.displayNumber, counter: 'Display Counter', status: TokenStatus.CALLED }));
     expect(JSON.stringify(calledSnapshot.data)).not.toContain('@example.com');
 
-    await tenantRequest(adminToken, orgA).post(`/branches/${branchA}/counters/${counterA}/current/serve`).expect(201);
-    const servedSnapshot = await events.nextEvent('TOKEN_SERVED');
-    expect(servedSnapshot.data.current).toEqual(expect.objectContaining({ tokenLabel: tokenA.displayNumber, status: TokenStatus.SERVING }));
-
     await tenantRequest(adminToken, orgA).post(`/branches/${branchA}/counters/${counterA}/current/recall`).expect(201);
     const recalledSnapshot = await events.nextEvent('TOKEN_RECALLED');
     expect(recalledSnapshot.data.current?.recalled).toBe(true);

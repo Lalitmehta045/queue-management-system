@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
-import QRCode from 'react-qr-code';
+
 import type { User, Branch, PrintTicket } from '../../../../../types/queue';
 import { fetchWithAuth } from '../../../../../lib/auth-client';
 import { Button } from '../../../../../components/ui/Button';
@@ -24,6 +24,8 @@ function PrintTicketPage() {
   const [orgId, setOrgId] = useState<string>('');
   const [currentBranchId, setCurrentBranchId] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  const [printerWidth, setPrinterWidth] = useState<'80mm' | '58mm'>('80mm');
   
   const hasAutoPrinted = useRef(false);
   const isMounted = useRef(true);
@@ -184,7 +186,6 @@ function PrintTicketPage() {
   const issuedDate = new Date(ticket.token.issuedAt);
   const dateStr = issuedDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
   const timeStr = issuedDate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-  const origin = typeof window !== 'undefined' ? window.location.origin : '';
 
   return (
     <div className="min-h-screen bg-slate-100 print:bg-white text-black flex flex-col items-center" style={systemFont}>
@@ -194,7 +195,16 @@ function PrintTicketPage() {
             <a href="/dashboard/reception" className="text-sm font-semibold text-slate-600 hover:text-slate-900 transition-colors">
               &larr; Back to reception
             </a>
-            <div className="flex gap-2">
+            <div className="flex gap-2 items-center">
+              <select
+                value={printerWidth}
+                onChange={(e) => setPrinterWidth(e.target.value as '80mm' | '58mm')}
+                className="text-xs border border-slate-300 rounded px-2 py-1.5 bg-white text-slate-700 font-medium cursor-pointer"
+                title="Select thermal paper size"
+              >
+                <option value="80mm">80mm Paper</option>
+                <option value="58mm">58mm Paper</option>
+              </select>
               {hardwarePrinterId && (
                 <Button 
                   size="sm" 
@@ -215,6 +225,11 @@ function PrintTicketPage() {
             </div>
           </div>
           
+          <div className="text-[10px] text-slate-500 bg-slate-50 p-2 rounded border border-slate-200">
+            <strong>Note:</strong> Set your printer driver to the correct paper size (58mm or 80mm). 
+            If the browser preview shows A4, adjust the Paper Size in the print dialog.
+          </div>
+
           {hwPrinterState === 'failed' && (
             <div className="p-2 bg-red-50 text-red-700 rounded text-xs font-medium border border-red-200">
               Hardware printing failed. Please use Browser Print.
@@ -229,37 +244,68 @@ function PrintTicketPage() {
       </div>
       
       <style dangerouslySetInnerHTML={{ __html: `
+        @media screen {
+          .ticket-container {
+            width: ${printerWidth};
+            margin: 2rem auto;
+            background: white;
+            padding: ${printerWidth === '58mm' ? '3mm' : '5mm'};
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+          }
+        }
         @media print {
-          @page { margin: 0; }
-          body { margin: 0; padding: 2mm; }
+          @page {
+            size: A5 portrait;
+            margin: 0;
+          }
+          html, body {
+            margin: 0 !important;
+            padding: 0 !important;
+            background-color: white !important;
+          }
+          .ticket-container {
+            display: block !important;
+            visibility: visible !important;
+            position: relative !important;
+            width: ${printerWidth} !important;
+            height: auto !important;
+            min-height: 0 !important;
+            margin: 0 !important;
+            padding: ${printerWidth === '58mm' ? '3mm' : '5mm'} !important;
+            box-sizing: border-box !important;
+            page-break-after: avoid !important;
+            page-break-inside: avoid !important;
+            overflow: visible !important;
+            box-shadow: none !important;
+          }
+          * {
+            box-sizing: border-box !important;
+          }
         }
       `}} />
-      <div className="my-8 print:my-0 print:shadow-none w-full max-w-sm bg-white shadow-xl p-8 print:p-0 print:w-full print:max-w-full">
-        <div className="receipt-content flex flex-col text-center print:px-2">
+      
+      <div id="print-root" className="w-full flex justify-center">
+        <div className="ticket-container flex flex-col text-center">
           
-          <div className="mb-4 w-full">
-            <h1 className="text-lg font-bold uppercase text-black break-words">{ticket.organization.name}</h1>
+          <div className="w-full">
+            <h1 className={`${printerWidth === '58mm' ? 'text-sm' : 'text-lg'} font-bold uppercase text-black break-words leading-tight m-0`}>
+              {ticket.organization.name}
+            </h1>
           </div>
 
-          <div className="w-full flex justify-between text-xs text-black font-medium mb-6 uppercase">
-            <span>Date: {dateStr}</span>
-            <span>Time: {timeStr}</span>
+          <div className={`w-full flex justify-between ${printerWidth === '58mm' ? 'text-[10px]' : 'text-xs'} text-black font-medium mt-1 mb-2 uppercase`}>
+            <span>{dateStr}</span>
+            <span>{timeStr}</span>
           </div>
 
-          <div className="mb-6 w-full text-center">
-            <div className="text-[5rem] print:text-[4rem] font-black leading-none tracking-tighter text-black break-words">
+          <div className="w-full text-center my-2">
+            <div className={`${printerWidth === '58mm' ? 'text-4xl' : 'text-6xl'} font-black leading-none tracking-tighter text-black break-words m-0`}>
               {ticket.token.displayNumber}
             </div>
           </div>
 
-          <div className="w-full flex flex-col items-center mb-6">
-            <div className="p-1 bg-white">
-              <QRCode value={`${origin}/queue/${tokenId}`} size={100} level="M" fgColor="#000000" />
-            </div>
-          </div>
-
-          <div className="w-full text-center">
-            <p className="text-sm font-bold text-black uppercase">
+          <div className="w-full text-center mt-2">
+            <p className={`${printerWidth === '58mm' ? 'text-[10px]' : 'text-sm'} font-bold text-black uppercase m-0`}>
               Please wait for your turn
             </p>
           </div>
