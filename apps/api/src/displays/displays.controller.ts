@@ -17,7 +17,7 @@ import { DisplaysService } from './displays.service';
 @Roles(Role.SUPER_ADMIN, Role.ORG_ADMIN, Role.BRANCH_ADMIN)
 @RequireFeature(FEATURES.PUBLIC_DISPLAY)
 export class DisplaysController {
-  constructor(private readonly displaysService: DisplaysService) {}
+  constructor(private readonly displaysService: DisplaysService) { }
 
   @Post()
   create(@CurrentTenant() tenant: AuthenticatedRequest['tenant'], @Param('branchId') branchId: string, @Body() dto: CreateDisplayDto) {
