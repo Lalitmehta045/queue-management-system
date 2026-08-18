@@ -238,4 +238,112 @@ describe('Queue calling (e2e)', () => {
     await tenantRequest(operatorTwoToken, orgA).post(`/branches/${branchA1}/counters/${counterA1}/call-next`).expect(403);
     await tenantRequest(operatorOneToken, orgA).post(`/branches/${branchA1}/counters/${counterA1}/tokens/not-a-uuid/call`).send({}).expect(404);
   });
+
+  describe('Skipped token recall', () => {
+    let recallTokenId: string;
+    let recallCounterId: string;
+    let recallOperatorToken: string;
+    let otherCounterId: string;
+    let otherOperatorToken: string;
+
+    beforeAll(async () => {
+      // Create a token, call it, skip it — sets up a SKIPPED token
+      const entry = await createQueueToken(adminToken, orgA, branchA1, 'Recall Patient', serviceA1);
+      recallCounterId = entry.token.counter?.id ?? counterA1;
+      recallOperatorToken = recallCounterId === counterA1 ? operatorOneToken : operatorTwoToken;
+      otherCounterId = recallCounterId === counterA1 ? counterA2 : counterA1;
+      otherOperatorToken = recallCounterId === counterA1 ? operatorTwoToken : operatorOneToken;
+
+      await tenantRequest(recallOperatorToken, orgA).post(`/branches/${branchA1}/counters/${recallCounterId}/tokens/${entry.token.id}/call`).send({}).expect(201);
+      await tenantRequest(recallOperatorToken, orgA).post(`/branches/${branchA1}/counters/${recallCounterId}/current/skip`).expect(201);
+      recallTokenId = entry.token.id;
+    });
+
+    it('(A) operator can recall a SKIPPED token from their own counter', async () => {
+      const response = await tenantRequest(recallOperatorToken, orgA).post(`/branches/${branchA1}/counters/${recallCounterId}/tokens/${recallTokenId}/recall`).expect(201);
+      expect((response.body as TokenResponse).status).toBe(TokenStatus.WAITING);
+    });
+
+    it('(B) recalled token is WAITING in the database', async () => {
+      const token = await prisma.token.findUniqueOrThrow({ where: { id: recallTokenId }, select: { status: true } });
+      expect(token.status).toBe(TokenStatus.WAITING);
+    });
+
+    it('(C) recalled token gets picked up by existing call-next', async () => {
+      const called = await tenantRequest(recallOperatorToken, orgA).post(`/branches/${branchA1}/counters/${recallCounterId}/call-next`).expect(201);
+      expect((called.body as TokenResponse).id).toBe(recallTokenId);
+      // Clean up — skip it so it doesn't block later tests
+      await tenantRequest(recallOperatorToken, orgA).post(`/branches/${branchA1}/counters/${recallCounterId}/current/skip`).expect(201);
+    });
+
+    it('(D) operator cannot recall another counter\'s skipped token', async () => {
+      await tenantRequest(otherOperatorToken, orgA).post(`/branches/${branchA1}/counters/${otherCounterId}/tokens/${recallTokenId}/recall`).expect(404);
+    });
+
+    it('(E) operator cannot recall a token from another branch', async () => {
+      await tenantRequest(recallOperatorToken, orgA).post(`/branches/${branchA2}/counters/${recallCounterId}/tokens/${recallTokenId}/recall`).expect(404);
+    });
+
+    it('(F) operator cannot recall a COMPLETED token', async () => {
+      const entry = await createQueueToken(adminToken, orgA, branchA1, 'Complete Recall', serviceA1);
+      const assignedCounter = entry.token.counter?.id ?? counterA1;
+      const operator = assignedCounter === counterA1 ? operatorOneToken : operatorTwoToken;
+      await tenantRequest(operator, orgA).post(`/branches/${branchA1}/counters/${assignedCounter}/tokens/${entry.token.id}/call`).send({}).expect(201);
+      await tenantRequest(operator, orgA).post(`/branches/${branchA1}/counters/${assignedCounter}/current/complete`).expect(201);
+      await tenantRequest(operator, orgA).post(`/branches/${branchA1}/counters/${assignedCounter}/tokens/${entry.token.id}/recall`).expect(409);
+    });
+
+    it('(G) operator cannot recall a CANCELLED token', async () => {
+      const entry = await createQueueToken(adminToken, orgA, branchA1, 'Cancel Recall', serviceA1);
+      const assignedCounter = entry.token.counter?.id ?? counterA1;
+      await tenantRequest(adminToken, orgA).post(`/branches/${branchA1}/tokens/${entry.token.id}/cancel`).expect(201);
+      const operator = assignedCounter === counterA1 ? operatorOneToken : operatorTwoToken;
+      await tenantRequest(operator, orgA).post(`/branches/${branchA1}/counters/${assignedCounter}/tokens/${entry.token.id}/recall`).expect(409);
+    });
+
+    it('(H) operator cannot recall WAITING, CALLED, or SERVING tokens', async () => {
+      // WAITING token
+      const waitingEntry = await createQueueToken(adminToken, orgA, branchA1, 'Waiting Recall', serviceA1);
+      const waitingCounter = waitingEntry.token.counter?.id ?? counterA1;
+      const waitingOp = waitingCounter === counterA1 ? operatorOneToken : operatorTwoToken;
+      await tenantRequest(waitingOp, orgA).post(`/branches/${branchA1}/counters/${waitingCounter}/tokens/${waitingEntry.token.id}/recall`).expect(409);
+
+      // CALLED token
+      await tenantRequest(waitingOp, orgA).post(`/branches/${branchA1}/counters/${waitingCounter}/tokens/${waitingEntry.token.id}/call`).send({}).expect(201);
+      await tenantRequest(waitingOp, orgA).post(`/branches/${branchA1}/counters/${waitingCounter}/tokens/${waitingEntry.token.id}/recall`).expect(409);
+
+      // Clean up
+      await tenantRequest(waitingOp, orgA).post(`/branches/${branchA1}/counters/${waitingCounter}/current/skip`).expect(201);
+    });
+
+    it('(I) duplicate recall of same token is rejected', async () => {
+      // recallTokenId is currently SKIPPED from test C cleanup
+      await tenantRequest(recallOperatorToken, orgA).post(`/branches/${branchA1}/counters/${recallCounterId}/tokens/${recallTokenId}/recall`).expect(201);
+      // Second recall should fail — token is now WAITING
+      await tenantRequest(recallOperatorToken, orgA).post(`/branches/${branchA1}/counters/${recallCounterId}/tokens/${recallTokenId}/recall`).expect(409);
+      // Clean up — skip it again for later tests
+      await tenantRequest(recallOperatorToken, orgA).post(`/branches/${branchA1}/counters/${recallCounterId}/tokens/${recallTokenId}/call`).send({}).expect(201);
+      await tenantRequest(recallOperatorToken, orgA).post(`/branches/${branchA1}/counters/${recallCounterId}/current/skip`).expect(201);
+    });
+
+    it('(K) GET /skipped returns only skipped tokens for operator\'s counter', async () => {
+      const response = await tenantRequest(recallOperatorToken, orgA).get(`/branches/${branchA1}/counters/${recallCounterId}/skipped`).expect(200);
+      const body = response.body as { data: TokenResponse[]; meta: { total: number } };
+      expect(body.data.length).toBeGreaterThanOrEqual(1);
+      expect(body.data.every((t) => t.status === TokenStatus.SKIPPED)).toBe(true);
+      expect(body.meta.total).toBe(body.data.length);
+    });
+
+    it('(J) existing SKIP behavior still works correctly', async () => {
+      const entry = await createQueueToken(adminToken, orgA, branchA1, 'Skip Still Works', serviceA1);
+      const assignedCounter = entry.token.counter?.id ?? counterA1;
+      const operator = assignedCounter === counterA1 ? operatorOneToken : operatorTwoToken;
+      await tenantRequest(operator, orgA).post(`/branches/${branchA1}/counters/${assignedCounter}/tokens/${entry.token.id}/call`).send({}).expect(201);
+      const skipped = await tenantRequest(operator, orgA).post(`/branches/${branchA1}/counters/${assignedCounter}/current/skip`).expect(201);
+      expect((skipped.body as TokenResponse).status).toBe(TokenStatus.SKIPPED);
+      const dbToken = await prisma.token.findUniqueOrThrow({ where: { id: entry.token.id }, select: { status: true, skippedAt: true } });
+      expect(dbToken.status).toBe(TokenStatus.SKIPPED);
+      expect(dbToken.skippedAt).not.toBeNull();
+    });
+  });
 });

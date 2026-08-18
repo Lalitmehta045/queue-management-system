@@ -288,6 +288,7 @@ export default function DisplaysPage() {
                   {logoPreview ? (
                     <div className="flex items-center gap-4 p-3 border rounded-lg bg-slate-50">
                       <div className="relative w-16 h-16 bg-white border rounded-md flex items-center justify-center overflow-hidden shrink-0">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img src={logoPreview} alt="Logo preview" className="max-w-full max-h-full object-contain" />
                       </div>
                       <div className="flex-1 min-w-0">

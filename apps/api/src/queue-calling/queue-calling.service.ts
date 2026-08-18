@@ -184,6 +184,47 @@ export class QueueCallingService {
     return token;
   }
 
+  async skippedTokens(tenant: Tenant, userId: string, branchId: string, counterId: string) {
+    const counter = await this.authorizeCounter(tenant, userId, branchId, counterId);
+    const data = await this.prisma.token.findMany({
+      where: {
+        status: TokenStatus.SKIPPED,
+        counterId: counter.id,
+        queueEntry: { service: { department: { branchId: counter.branchId, branch: { organizationId: tenant.organizationId } } } },
+      },
+      orderBy: [{ skippedAt: 'desc' }, { id: 'asc' }],
+      select: this.tokenSelect,
+    });
+    return { data, meta: { total: data.length, counterId: counter.id, branchId: counter.branchId } };
+  }
+
+  async recallSkippedToken(tenant: Tenant, userId: string, branchId: string, counterId: string, tokenId: string, auditContext?: AuditContext) {
+    const counter = await this.authorizeCounter(tenant, userId, branchId, counterId);
+    if (!isUUID(tokenId)) throw new NotFoundException('Token not found');
+
+    const scopedToken = await this.prisma.token.findFirst({
+      where: {
+        id: tokenId,
+        counterId: counter.id,
+        queueEntry: { service: { department: { branchId: counter.branchId, branch: { organizationId: tenant.organizationId } } } },
+      },
+      select: { id: true, status: true },
+    });
+    if (!scopedToken) throw new NotFoundException('Token not found');
+    if (scopedToken.status !== TokenStatus.SKIPPED) throw new ConflictException('Token is not in SKIPPED status');
+
+    const updated = await this.prisma.token.updateMany({
+      where: { id: tokenId, counterId: counter.id, status: TokenStatus.SKIPPED },
+      data: { status: TokenStatus.WAITING, skippedAt: null },
+    });
+    if (updated.count !== 1) throw new ConflictException('Token state has changed; please refresh and try again');
+
+    const token = await this.getScopedToken(tenant.organizationId, counter.branchId, tokenId);
+    this.displayEvents.publish(counter.branchId, 'TOKEN_RECALL_SKIPPED');
+    if (token && auditContext) await this.auditToken(auditContext, tenant.organizationId, counter.branchId, AuditAction.TOKEN_RECALLED, token, userId);
+    return token;
+  }
+
   private async auditToken(auditContext: AuditContext, organizationId: string, branchId: string, action: AuditAction, token: TokenAuditRow, userId: string) {
     await this.audit.record({
       ...auditContext,

@@ -51,6 +51,17 @@ export class QueueCallingController {
     return this.queueCallingService.recall(requiredTenant, user.userId, branchId, counterId, getAuditContext(requiredTenant, user, request));
   }
 
+  @Get('skipped')
+  skippedTokens(@CurrentTenant() tenant: AuthenticatedRequest['tenant'], @CurrentUser() user: { userId: string }, @Param('branchId') branchId: string, @Param('counterId') counterId: string) {
+    return this.queueCallingService.skippedTokens(this.requireTenant(tenant), user.userId, branchId, counterId);
+  }
+
+  @Post('tokens/:tokenId/recall')
+  recallSkippedToken(@CurrentTenant() tenant: AuthenticatedRequest['tenant'], @CurrentUser() user: { userId: string }, @Req() request: AuthenticatedRequest, @Param('branchId') branchId: string, @Param('counterId') counterId: string, @Param('tokenId') tokenId: string) {
+    const requiredTenant = this.requireTenant(tenant);
+    return this.queueCallingService.recallSkippedToken(requiredTenant, user.userId, branchId, counterId, tokenId, getAuditContext(requiredTenant, user, request));
+  }
+
   @Post('current/skip')
   skip(@CurrentTenant() tenant: AuthenticatedRequest['tenant'], @CurrentUser() user: { userId: string }, @Req() request: AuthenticatedRequest, @Param('branchId') branchId: string, @Param('counterId') counterId: string) {
     const requiredTenant = this.requireTenant(tenant);

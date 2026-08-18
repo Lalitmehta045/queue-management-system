@@ -6,7 +6,8 @@ export type DisplayEventType =
   | 'TOKEN_SERVED'
   | 'TOKEN_RECALLED'
   | 'TOKEN_SKIPPED'
-  | 'TOKEN_COMPLETED';
+  | 'TOKEN_COMPLETED'
+  | 'TOKEN_RECALL_SKIPPED';
 
 type Listener = (eventType: DisplayEventType) => void;
 

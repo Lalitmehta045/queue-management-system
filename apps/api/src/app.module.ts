@@ -25,6 +25,7 @@ import { PublicQueueModule } from "./public-queue/public-queue.module";
 import { PrintersModule } from './printers/printers.module';
 import { SelfServiceModule } from './self-service/self-service.module';
 import { EntitlementsModule } from './entitlements/entitlements.module';
+import { TasksModule } from './tasks/tasks.module';
 
 @Module({
   imports: [
@@ -97,6 +98,7 @@ import { EntitlementsModule } from './entitlements/entitlements.module';
     PrintersModule,
     SelfServiceModule,
     EntitlementsModule,
+    TasksModule,
   ],
   providers: [
     ...(process.env.NODE_ENV === 'test' ? [] : [{

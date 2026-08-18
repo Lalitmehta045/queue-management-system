@@ -139,4 +139,48 @@ export class QueueAllocationService {
 
     return { summary, totalAssigned, skippedAssigned, counters, unassignedTokens };
   }
+
+  async allocateWaitingTokensBulk(tx: Prisma.TransactionClient, branchId: string, quantity: number): Promise<(string | null)[]> {
+    const counters = await tx.counter.findMany({
+      where: { branchId, status: CounterStatus.ACTIVE },
+      select: { id: true, code: true },
+      orderBy: { code: 'asc' },
+    });
+    
+    if (!counters.length) return Array(quantity).fill(null) as (string | null)[];
+    
+    const waitingCounts = await tx.token.groupBy({
+      by: ['counterId'],
+      where: {
+        counterId: { in: counters.map((c) => c.id) },
+        status: 'WAITING',
+      },
+      _count: { id: true },
+    });
+    
+    const countMap = new Map(counters.map(c => [c.id, 0]));
+    for (const w of waitingCounts) {
+      if (w.counterId) countMap.set(w.counterId, w._count.id);
+    }
+    
+    const assignments: (string | null)[] = [];
+    for (let i = 0; i < quantity; i++) {
+      let bestCounter = counters[0]!;
+      let minCount = countMap.get(bestCounter.id) || 0;
+      
+      for (let j = 1; j < counters.length; j++) {
+        const c = counters[j]!;
+        const count = countMap.get(c.id) || 0;
+        if (count < minCount) {
+          bestCounter = c;
+          minCount = count;
+        }
+      }
+      
+      assignments.push(bestCounter.id);
+      countMap.set(bestCounter.id, minCount + 1);
+    }
+    
+    return assignments;
+  }
 }

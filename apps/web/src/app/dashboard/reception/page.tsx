@@ -37,6 +37,7 @@ export default function ReceptionPage() {
   const [step, setStep] = useState<Step>('form');
   const [selectedServiceId, setSelectedServiceId] = useState<string>('');
   const [priority, setPriority] = useState('NORMAL');
+  const [quantity, setQuantity] = useState<number>(1);
   
   // Customer optional
   const [patientMode, setPatientMode] = useState<'none' | 'existing' | 'new'>('none');
@@ -48,7 +49,7 @@ export default function ReceptionPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState('');
   const [messageType, setMessageType] = useState<'error' | 'success'>('error');
-  const [generatedToken, setGeneratedToken] = useState<{ token: GeneratedToken; serviceName: string; priority: string; customerName: string } | null>(null);
+  const [generatedTokens, setGeneratedTokens] = useState<{ tokens: GeneratedToken[]; serviceName: string; priority: string; customerName: string } | null>(null);
 
   const isMounted = useRef(true);
   useEffect(() => {
@@ -222,35 +223,59 @@ export default function ReceptionPage() {
     try {
       const headers = { 'x-organization-id': organizationId };
 
-      const body: Record<string, string> = { serviceId: selectedService.id, priority };
-      if (targetPatientId) {
-        body.patientId = targetPatientId;
+      if (quantity > 1) {
+        const body: Record<string, unknown> = { serviceId: selectedService.id, priority, quantity };
+        if (targetPatientId) {
+          body.patientId = targetPatientId;
+        }
+
+        const bResponse = await fetchWithAuth(`/api/branches/${branchId}/tokens/bulk`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(body)
+        });
+
+        if (bResponse.status === 403) { showMessage('Forbidden: You do not have permission.'); return; }
+        if (!bResponse.ok) { 
+          const errData = await bResponse.json().catch(() => null);
+          showMessage(errData?.message || 'Failed to generate bulk tokens.'); 
+          return; 
+        }
+
+        const result = await bResponse.json();
+        setGeneratedTokens({ tokens: result.tokens, serviceName: selectedService.name, priority, customerName });
+        setStep('success');
+      } else {
+        const body: Record<string, string> = { serviceId: selectedService.id, priority };
+        if (targetPatientId) {
+          body.patientId = targetPatientId;
+        }
+
+        const qResponse = await fetchWithAuth(`/api/branches/${branchId}/queue-entries`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(body)
+        });
+
+        if (qResponse.status === 403) { showMessage('Forbidden: You do not have permission.'); return; }
+        if (qResponse.status === 409) { showMessage('Customer already has an active queue entry for this service.'); return; }
+        if (!qResponse.ok) { showMessage('Failed to create queue entry.'); return; }
+
+        const queueEntry = await qResponse.json();
+
+        const tResponse = await fetchWithAuth(`/api/branches/${branchId}/queue-entries/${queueEntry.id}/token`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({})
+        });
+
+        if (!tResponse.ok) { showMessage('Queue entry created, but token generation failed.'); return; }
+
+        const token = await tResponse.json();
+
+        setGeneratedTokens({ tokens: [token], serviceName: selectedService.name, priority, customerName });
+        setStep('success');
       }
-
-      const qResponse = await fetchWithAuth(`/api/branches/${branchId}/queue-entries`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body)
-      });
-
-      if (qResponse.status === 403) { showMessage('Forbidden: You do not have permission.'); return; }
-      if (qResponse.status === 409) { showMessage('Customer already has an active queue entry for this service.'); return; }
-      if (!qResponse.ok) { showMessage('Failed to create queue entry.'); return; }
-
-      const queueEntry = await qResponse.json();
-
-      const tResponse = await fetchWithAuth(`/api/branches/${branchId}/queue-entries/${queueEntry.id}/token`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({})
-      });
-
-      if (!tResponse.ok) { showMessage('Queue entry created, but token generation failed.'); return; }
-
-      const token = await tResponse.json();
-
-      setGeneratedToken({ token, serviceName: selectedService.name, priority, customerName });
-      setStep('success');
     } catch {
       showMessage('A network error occurred.');
     } finally {
@@ -259,18 +284,28 @@ export default function ReceptionPage() {
   }
 
   function handleReset() {
-    setGeneratedToken(null);
+    setGeneratedTokens(null);
     setSelectedPatientId('');
     setPatientMode('none');
     setMessage('');
+    setQuantity(1);
     setNewPatientData({ firstName: '', lastName: '', phone: '' });
     // Keep the service and priority as is for faster generation of next token
     setStep('form');
   }
 
   function printTicket() {
-    if (generatedToken) {
-      window.open(`/dashboard/tokens/${generatedToken.token.id}/print?branch=${branchId}`, '_blank');
+    if (generatedTokens && generatedTokens.tokens.length > 0) {
+      if (generatedTokens.tokens.length === 1) {
+        window.open(`/dashboard/tokens/${generatedTokens.tokens[0]!.id}/print?branch=${branchId}`, '_blank');
+      } else {
+        // Simplistic print for multiple tokens: open print pages for each, or just the first one if multiple tabs is blocked by popup blockers
+        // For now, we will open the first one. Alternatively a combined print view could be built.
+        window.open(`/dashboard/tokens/${generatedTokens.tokens[0]!.id}/print?branch=${branchId}`, '_blank');
+        if (generatedTokens.tokens.length > 1) {
+          showMessage('Multiple tokens generated. Only printing the first token to avoid popup blocking.', 'success');
+        }
+      }
     }
   }
 
@@ -348,6 +383,22 @@ export default function ReceptionPage() {
               </div>
             )}
 
+            <div className="space-y-3">
+              <label className="block text-sm font-bold text-slate-700 uppercase tracking-wider">Quantity</label>
+              <Input 
+                type="number" 
+                min={1} 
+                max={50} 
+                step={1}
+                value={quantity} 
+                onChange={(e) => {
+                  const val = parseInt(e.target.value, 10);
+                  setQuantity(isNaN(val) ? 1 : val);
+                }}
+                className="w-full text-lg h-12 shadow-sm"
+              />
+            </div>
+
             <div className="pt-4 border-t border-slate-100">
               <div className="flex items-center justify-between mb-4">
                 <label className="block text-sm font-bold text-slate-700 uppercase tracking-wider">Customer <span className="text-slate-400 font-normal lowercase">(Optional)</span></label>
@@ -386,29 +437,43 @@ export default function ReceptionPage() {
                 size="lg"
                 className="w-full shadow-lg shadow-teal-600/20 text-lg font-bold h-14"
                 onClick={() => void handleGenerateToken()}
-                disabled={isSubmitting || !selectedServiceId}
+                disabled={isSubmitting || !selectedServiceId || quantity < 1 || quantity > 50}
                 isLoading={isSubmitting}
               >
-                {isSubmitting ? 'Generating...' : 'GENERATE TOKEN'}
+                {isSubmitting ? 'Generating...' : `GENERATE ${quantity > 1 ? quantity + ' ' : ''}TOKEN${quantity > 1 ? 'S' : ''}`}
               </Button>
             </div>
           </CardContent>
         </Card>
       )}
 
-      {state === 'ready' && step === 'success' && generatedToken && (
+      {state === 'ready' && step === 'success' && generatedTokens && (
         <Card className="max-w-md mx-auto border-teal-100 bg-white shadow-xl rounded-2xl overflow-hidden text-center">
           <div className="bg-teal-600 text-white py-3 text-xs font-black uppercase tracking-[0.2em]">
-            Token Generated
+            {generatedTokens.tokens.length > 1 ? `${generatedTokens.tokens.length} Tokens Generated` : 'Token Generated'}
           </div>
           <CardContent className="pt-10 pb-10 flex flex-col items-center">
-            <div className="text-[6rem] font-black text-slate-900 leading-none tracking-tighter mb-6">
-              {generatedToken.token.displayNumber}
-            </div>
-            {generatedToken.customerName !== 'Walk-in Customer' && (
-              <p className="text-xl font-bold text-slate-800">{generatedToken.customerName}</p>
+            {generatedTokens.tokens.length === 1 ? (
+              <div className="text-[6rem] font-black text-slate-900 leading-none tracking-tighter mb-6">
+                {generatedTokens.tokens[0]!.displayNumber}
+              </div>
+            ) : (
+              <div className="mb-6 space-y-2 max-h-64 overflow-y-auto w-full px-4 text-center">
+                <p className="text-sm font-semibold text-teal-600 uppercase mb-4">Successfully generated:</p>
+                <div className="flex flex-wrap justify-center gap-3">
+                  {generatedTokens.tokens.map(t => (
+                    <span key={t.id} className="inline-block bg-slate-100 px-4 py-2 rounded-lg text-2xl font-black text-slate-800">
+                      {t.displayNumber}
+                    </span>
+                  ))}
+                </div>
+              </div>
             )}
-            <p className="text-md font-semibold text-slate-500 mt-1">{generatedToken.serviceName}</p>
+            
+            {generatedTokens.customerName !== 'Walk-in Customer' && (
+              <p className="text-xl font-bold text-slate-800">{generatedTokens.customerName}</p>
+            )}
+            <p className="text-md font-semibold text-slate-500 mt-1">{generatedTokens.serviceName}</p>
             
             <div className="w-12 h-1 bg-slate-200 rounded-full my-6"></div>
             

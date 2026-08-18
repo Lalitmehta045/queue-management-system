@@ -67,6 +67,7 @@ export type Token = {
   calledAt: string | null;
   servingAt: string | null;
   completedAt: string | null;
+  skippedAt: string | null;
   recallCount: number;
   counter: { id: string; name: string; code: string } | null;
   operator: { id: string; displayName: string } | null;

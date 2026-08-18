@@ -21,6 +21,7 @@ export default function CounterWorkspacePage() {
   const [counterId, setCounterId] = useState('');
   const [current, setCurrent] = useState<Token | null>(null);
   const [waiting, setWaiting] = useState<WaitingResponse | null>(null);
+  const [skipped, setSkipped] = useState<WaitingResponse | null>(null);
   const [state, setState] = useState<CounterPageState>('loading');
   const [message, setMessage] = useState('');
   const [messageType, setMessageType] = useState<'error' | 'success' | 'info'>('info');
@@ -76,9 +77,10 @@ export default function CounterWorkspacePage() {
     async function refresh() {
       try {
         const headers = { 'x-organization-id': organizationId };
-        const [currentResponse, waitingResponse] = await Promise.all([
+        const [currentResponse, waitingResponse, skippedResponse] = await Promise.all([
           fetchWithAuth(`/api/branches/${branchId}/counters/${counterId}/current`, { headers }),
           fetchWithAuth(`/api/branches/${branchId}/counters/${counterId}/waiting`, { headers }),
+          fetchWithAuth(`/api/branches/${branchId}/counters/${counterId}/skipped`, { headers }),
         ]);
         
         if (currentResponse.status === 401 || waitingResponse.status === 401) { if (isMounted.current) router.push('/login'); return; }
@@ -87,10 +89,12 @@ export default function CounterWorkspacePage() {
         
         const currentData = await currentResponse.json() as Token | null;
         const waitingData = await waitingResponse.json();
+        const skippedData = skippedResponse.ok ? await skippedResponse.json() : null;
         
         if (isMounted.current && !closed) {
           setCurrent(currentData);
           setWaiting(waitingData);
+          setSkipped(skippedData);
           setState('ready');
           isReconnecting.current = false;
         }
@@ -132,13 +136,15 @@ export default function CounterWorkspacePage() {
   async function refreshState() {
     try {
       const headers = { 'x-organization-id': organizationId };
-      const [currentResponse, waitingResponse] = await Promise.all([
+      const [currentResponse, waitingResponse, skippedResponse] = await Promise.all([
         fetchWithAuth(`/api/branches/${branchId}/counters/${counterId}/current`, { headers }),
         fetchWithAuth(`/api/branches/${branchId}/counters/${counterId}/waiting`, { headers }),
+        fetchWithAuth(`/api/branches/${branchId}/counters/${counterId}/skipped`, { headers }),
       ]);
       if (currentResponse.ok && waitingResponse.ok && isMounted.current) {
         setCurrent(await currentResponse.json() as Token | null);
         setWaiting(await waitingResponse.json());
+        if (skippedResponse.ok) setSkipped(await skippedResponse.json());
       }
     } catch {
       // ignore
@@ -205,6 +211,41 @@ export default function CounterWorkspacePage() {
         showMessage(`Token ${currentNumber} recalled`, 'info');
       }
       
+      await refreshState();
+    } catch {
+      showMessage('A network error occurred.', 'error');
+    } finally {
+      setIsSubmitting(false);
+      setSubmittingAction(null);
+    }
+  }
+
+  async function handleRecallSkipped(tokenId: string, displayNumber: string) {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    setSubmittingAction(`recall-skipped-${tokenId}`);
+    setMessage('');
+    try {
+      const response = await fetchWithAuth(`/api/branches/${branchId}/counters/${counterId}/tokens/${tokenId}/recall`, { method: 'POST', headers: { 'x-organization-id': organizationId } });
+      
+      if (response.status === 401) { router.push('/login'); return; }
+      if (response.status === 403) { setState('forbidden'); return; }
+      if (response.status === 409) {
+        showMessage('Token state has changed. Refreshing…', 'error');
+        await refreshState();
+        return;
+      }
+      if (response.status === 404) {
+        showMessage('Token not found. It may have been moved.', 'error');
+        await refreshState();
+        return;
+      }
+      if (!response.ok) {
+        showMessage('Unable to recall that token.', 'error');
+        return;
+      }
+      
+      showMessage(`Token ${displayNumber} recalled to queue`, 'success');
       await refreshState();
     } catch {
       showMessage('A network error occurred.', 'error');
@@ -472,6 +513,67 @@ export default function CounterWorkspacePage() {
                         onClick={() => void handleCallSpecific(token.id)}
                       >
                         Call
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* SKIPPED TOKENS */}
+        <section className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+          <div className="bg-white p-6 sm:px-8 sm:py-6 border-b border-slate-100 flex justify-between items-center">
+            <h3 className="text-lg font-semibold text-slate-900 tracking-tight">Skipped Tokens</h3>
+            {state !== 'loading' && (
+              <div className="px-3 py-1 bg-amber-50 text-amber-600 border border-amber-200 rounded-full text-xs font-semibold tracking-wide">
+                {skipped?.meta.total ?? 0} skipped
+              </div>
+            )}
+          </div>
+          
+          <div className="p-0">
+            {state === 'loading' ? (
+              <div className="p-6 sm:p-8 space-y-4">
+                <Skeleton className="h-16 w-full rounded-xl" />
+                <Skeleton className="h-16 w-full rounded-xl" />
+              </div>
+            ) : !skipped?.data.length ? (
+              <div className="p-12 sm:p-16 text-center">
+                <p className="text-slate-500 font-medium text-lg">No skipped tokens</p>
+                <p className="text-slate-400 text-sm mt-1">Skipped tokens will appear here for recall.</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-50">
+                {skipped.data.map(token => (
+                  <div key={token.id} className="p-5 sm:px-8 sm:py-5 flex items-center justify-between hover:bg-slate-50/50 transition-colors group">
+                    <div className="flex items-center gap-6">
+                      <span className="w-16 font-bold text-2xl text-slate-800 tracking-tight">{token.displayNumber}</span>
+                      <div>
+                        <h4 className="font-semibold text-slate-900">
+                          {token.queueEntry.patient ? `${token.queueEntry.patient.firstName} ${token.queueEntry.patient.lastName}` : 'Walk-in Customer'}
+                        </h4>
+                        <p className="text-sm text-slate-500 mt-0.5">
+                          {token.queueEntry.service.name}
+                        </p>
+                        {token.skippedAt && (
+                          <p className="text-xs text-slate-400 mt-0.5">
+                            Skipped {new Date(token.skippedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <span className="text-xs font-semibold text-amber-500 uppercase tracking-wider hidden sm:block">Skipped</span>
+                      <Button
+                        size="sm"
+                        className="bg-teal-600 hover:bg-teal-700 text-white font-semibold shadow-sm"
+                        disabled={isSubmitting}
+                        isLoading={isSubmitting && submittingAction === `recall-skipped-${token.id}`}
+                        onClick={() => void handleRecallSkipped(token.id, token.displayNumber)}
+                      >
+                        Recall
                       </Button>
                     </div>
                   </div>

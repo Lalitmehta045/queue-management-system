@@ -9,6 +9,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AuthenticatedRequest, TenantGuard } from '../auth/guards/tenant.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { GenerateTokenDto } from './dto/generate-token.dto';
+import { BulkGenerateTokenDto } from './dto/bulk-generate-token.dto';
 import { ListTokensDto } from './dto/list-tokens.dto';
 import { TokensService } from './tokens.service';
 
@@ -24,6 +25,14 @@ export class TokensController {
     void dto;
     const requiredTenant = this.requireTenant(tenant);
     return this.tokensService.generate(requiredTenant, branchId, queueEntryId, getAuditContext(requiredTenant, user, request));
+  }
+
+  @Post('tokens/bulk')
+  @Throttle({ default: { limit: 1000, ttl: 60000 } })
+  @Roles(Role.ORG_ADMIN, Role.BRANCH_ADMIN, Role.RECEPTIONIST)
+  generateBulk(@CurrentTenant() tenant: AuthenticatedRequest['tenant'], @CurrentUser() user: { userId: string }, @Req() request: AuthenticatedRequest, @Param('branchId') branchId: string, @Body() dto: BulkGenerateTokenDto) {
+    const requiredTenant = this.requireTenant(tenant);
+    return this.tokensService.generateBulk(requiredTenant, branchId, dto, getAuditContext(requiredTenant, user, request));
   }
 
   @Get('queue-entries/:queueEntryId/token')

@@ -11,6 +11,7 @@ import { EntitlementsService } from '../entitlements/entitlements.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ListTokensDto } from './dto/list-tokens.dto';
+import { BulkGenerateTokenDto } from './dto/bulk-generate-token.dto';
 import { QueueAllocationService } from '../queue-calling/queue-allocation.service';
 
 type Tenant = NonNullable<AuthenticatedRequest['tenant']>;
@@ -127,6 +128,156 @@ export class TokensService {
           metadata: { queueEntryId: token.queueEntryId, displayNumber: token.displayNumber, status: token.status, businessDate: token.businessDate },
         });
         return token;
+      } catch (error: unknown) {
+        if (error instanceof RetryableTokenGenerationError || this.isUniqueError(error)) {
+          if (attempt < 49) {
+            await this.waitForRetry(attempt);
+            continue;
+          }
+          throw new ConflictException('Token generation is busy; please retry');
+        }
+        throw error;
+      }
+    }
+    throw new ConflictException('Token generation is busy; please retry');
+  }
+
+  async generateBulk(tenant: Tenant, branchId: string, dto: BulkGenerateTokenDto, auditContext?: AuditContext) {
+    await this.authorizeBranch(tenant, branchId);
+    const normalizedBusinessDate = this.parseBusinessDate(this.businessDateKey());
+    const businessDateKey = this.businessDateKey();
+    const serviceId = dto.serviceId;
+    const quantity = dto.quantity;
+    const priority = dto.priority;
+    const patientId = dto.patientId ?? null;
+
+    // Verify service exists and is active
+    const service = await this.prisma.service.findFirst({
+      where: {
+        id: serviceId,
+        status: 'ACTIVE',
+        department: { branchId, branch: { organizationId: tenant.organizationId } },
+      },
+      select: { id: true, name: true, departmentId: true, acceptingQueueEntries: true },
+    });
+    
+    if (!service) throw new NotFoundException('Service not found');
+    if (!service.acceptingQueueEntries) throw new ConflictException('This service is not currently accepting new queue entries');
+
+    let patient = null;
+    if (patientId) {
+      patient = await this.prisma.patient.findFirst({
+        where: { id: patientId, branchId, status: 'ACTIVE', branch: { organizationId: tenant.organizationId } },
+        select: { id: true, patientNumber: true },
+      });
+      if (!patient) throw new NotFoundException('Patient not found');
+    }
+
+    // Ensure sequence exists
+    await this.ensureSequence(branchId, serviceId, businessDateKey);
+
+    const priorityConfig = await this.prisma.priorityConfiguration.findFirst({
+      where: {
+        organizationId: tenant.organizationId,
+        level: priority,
+        active: true,
+        OR: [{ departmentId: service.departmentId }, { departmentId: null }],
+      },
+      orderBy: { departmentId: { sort: 'asc', nulls: 'last' } },
+    });
+    
+    const defaultWeights: Record<string, number> = { EMERGENCY: 100, VIP: 80, SENIOR_CITIZEN: 60, APPOINTMENT: 40, NORMAL: 0 };
+    const priorityWeight = priorityConfig ? priorityConfig.weight : defaultWeights[priority] ?? 0;
+
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      try {
+        const tokens = await this.prisma.$transaction(async (tx) => {
+          await this.entitlements.lockOrganization(tenant.organizationId, tx);
+          
+          const dailyTokenCount = await tx.token.count({
+            where: {
+              businessDate: normalizedBusinessDate,
+              queueEntry: {
+                OR: [
+                  { patientId: null, service: { department: { branch: { organizationId: tenant.organizationId } } } },
+                  { patient: { branch: { organizationId: tenant.organizationId } } },
+                ],
+              },
+            },
+          });
+          await this.entitlements.enforceVolumeLimit(tenant.organizationId, 'maxDailyTokens', dailyTokenCount, quantity, tx);
+
+          const waitingCount = await tx.queueEntry.count({
+            where: { status: 'WAITING', service: { department: { branch: { organizationId: tenant.organizationId } } } },
+          });
+          await this.entitlements.enforceVolumeLimit(tenant.organizationId, 'maxWaitingQueueSize', waitingCount, quantity, tx);
+
+          const sequence = await tx.tokenSequence.findUnique({ where: { branchId_serviceId_businessDate: { branchId, serviceId, businessDate: normalizedBusinessDate } } });
+          if (!sequence) throw new RetryableTokenGenerationError('Token sequence was not available');
+          const sequenceNumber = sequence.nextNumber;
+          
+          const claimed = await tx.tokenSequence.updateMany({
+            where: { id: sequence.id, nextNumber: sequenceNumber },
+            data: { nextNumber: { increment: quantity } },
+          });
+          if (claimed.count !== 1) throw new RetryableTokenGenerationError('Token sequence contention');
+
+          const assignments = await this.queueAllocation.allocateWaitingTokensBulk(tx, branchId, quantity);
+
+          const createdTokens = [];
+          for (let i = 0; i < quantity; i++) {
+            const qe = await tx.queueEntry.create({
+              data: {
+                patientId: patient?.id ?? null,
+                serviceId: service.id,
+                activeEntryKey: null, // Left null for bulk tokens to avoid unique constraint if patientId is provided
+                priority,
+                priorityWeight,
+              },
+            });
+
+            const token = await tx.token.create({
+              data: {
+                queueEntryId: qe.id,
+                sequenceId: sequence.id,
+                sequenceNumber: sequenceNumber + i,
+                displayNumber: this.displayNumber(sequenceNumber + i),
+                businessDate: normalizedBusinessDate,
+                counterId: assignments[i] ?? null,
+              },
+              select: this.tokenSelect,
+            });
+            createdTokens.push(token);
+          }
+          return createdTokens;
+        });
+
+        this.displayEvents.publish(branchId, 'QUEUE_UPDATED');
+        
+        // Notify in background for all created tokens
+        for (const token of tokens) {
+          void this.notifications.onTokenCreated(branchId, token.id).catch(() => undefined);
+        }
+        
+        if (auditContext) {
+          await this.audit.record({
+            ...auditContext,
+            organizationId: tenant.organizationId,
+            branchId,
+            action: AuditAction.TOKEN_CREATED,
+            resourceType: AuditResourceType.TOKEN,
+            resourceId: tokens[0]!.id, // Reference first token
+            metadata: { 
+              bulk: true,
+              quantity,
+              serviceId,
+              patientId,
+              firstDisplayNumber: tokens[0]!.displayNumber,
+              lastDisplayNumber: tokens[tokens.length - 1]!.displayNumber
+            },
+          });
+        }
+        return { count: tokens.length, tokens };
       } catch (error: unknown) {
         if (error instanceof RetryableTokenGenerationError || this.isUniqueError(error)) {
           if (attempt < 49) {
