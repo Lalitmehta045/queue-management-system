@@ -65,16 +65,32 @@ function clampNumber(value: unknown, min: number, max: number, fallback: number)
 }
 
 /**
- * Builds the spoken sentence for a token using the default template:
- * "Token T-023, please proceed to Counter 2." (+ " for {service}" when known).
+ * Builds the spoken sentence for a token based on the selected language.
  */
-export function renderAnnouncementText(token: {
-  tokenLabel: string;
-  counter: string;
-  service?: string;
-}): string {
+export function renderAnnouncementText(
+  token: { tokenLabel: string; counter: string; service?: string },
+  language: string = 'en-US'
+): string {
+  const isHindi = language.toLowerCase().startsWith('hi');
+
+  if (isHindi) {
+    let counterText = token.counter;
+    if (/counter/i.test(counterText)) {
+      counterText = counterText.replace(/counter/i, 'काउंटर').trim();
+    } else {
+      counterText = `काउंटर ${counterText}`;
+    }
+
+    const base = `टोकन ${token.tokenLabel}, कृपया ${counterText} पर जाएँ।`;
+    return token.service
+      ? `टोकन ${token.tokenLabel}, कृपया ${token.service} के लिए ${counterText} पर जाएँ।`
+      : base;
+  }
+
   const base = `Token ${token.tokenLabel}, please proceed to ${token.counter}.`;
-  return token.service ? `Token ${token.tokenLabel}, please proceed to ${token.counter} for ${token.service}.` : base;
+  return token.service
+    ? `Token ${token.tokenLabel}, please proceed to ${token.counter} for ${token.service}.`
+    : base;
 }
 
 type QueueItem = { eventKey: string; text: string };
@@ -90,11 +106,39 @@ export class AnnouncementSpeaker {
   private readonly recentKeys: string[] = [];
   private speaking = false;
   private watchdog: ReturnType<typeof setTimeout> | null = null;
+  private voicesLoaded = false;
 
   constructor(
     private readonly synth: SpeechSynthesis,
     private readonly getSettings: () => AnnouncementSettings,
-  ) {}
+  ) {
+    // Preload voices if possible
+    if (this.synth.getVoices().length > 0) {
+      this.voicesLoaded = true;
+    }
+  }
+
+  private async waitForVoices(): Promise<void> {
+    if (this.voicesLoaded || this.synth.getVoices().length > 0) {
+      this.voicesLoaded = true;
+      return;
+    }
+
+    return new Promise<void>((resolve) => {
+      const handleVoicesChanged = () => {
+        this.voicesLoaded = true;
+        this.synth.removeEventListener('voiceschanged', handleVoicesChanged);
+        resolve();
+      };
+      this.synth.addEventListener('voiceschanged', handleVoicesChanged);
+      
+      // Fallback timeout in case voiceschanged never fires (e.g. no voices or broken browser)
+      setTimeout(() => {
+        this.synth.removeEventListener('voiceschanged', handleVoicesChanged);
+        resolve();
+      }, 2000);
+    });
+  }
 
   enqueue(eventKey: string, text: string): void {
     if (this.recentKeys.includes(eventKey)) return;
@@ -130,7 +174,27 @@ export class AnnouncementSpeaker {
     }
   }
 
-  private speak(text: string, settings: AnnouncementSettings): Promise<void> {
+  private async speak(text: string, settings: AnnouncementSettings): Promise<void> {
+    // Ensure cancel is called before starting new speech for reliability
+    this.synth.cancel();
+    await this.waitForVoices();
+
+    const isHindi = settings.language.toLowerCase().startsWith('hi');
+    const voice = this.pickVoice(settings, isHindi);
+
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`[Audio] Language: ${settings.language}`);
+      console.log(`[Audio] Available voices:`, this.synth.getVoices().map(v => v.lang).join(', '));
+      console.log(`[Audio] Voice:`, voice ? voice.name : 'None');
+      console.log(`[Audio] Text: ${text}`);
+    }
+
+    if (isHindi && !voice) {
+      console.warn("Hindi speech voice is not available in this browser/device.");
+      // Do not falsely report or pretend it's working with an English voice
+      return; 
+    }
+
     return new Promise<void>((resolve) => {
       let settled = false;
       const finish = () => {
@@ -144,9 +208,8 @@ export class AnnouncementSpeaker {
       };
 
       const utterance = new SpeechSynthesisUtterance(text);
-      const voice = this.pickVoice(settings);
       if (voice) utterance.voice = voice;
-      utterance.lang = settings.language;
+      utterance.lang = voice ? voice.lang : settings.language;
       utterance.rate = settings.rate;
       utterance.volume = settings.volume;
       utterance.onend = finish;
@@ -159,13 +222,19 @@ export class AnnouncementSpeaker {
     });
   }
 
-  private pickVoice(settings: AnnouncementSettings): SpeechSynthesisVoice | null {
+  private pickVoice(settings: AnnouncementSettings, isHindi: boolean): SpeechSynthesisVoice | null {
     const voices = this.synth.getVoices();
     if (!voices.length) return null;
+    
     if (settings.voiceURI) {
       const chosen = voices.find((voice) => voice.voiceURI === settings.voiceURI);
       if (chosen) return chosen;
     }
+
+    if (isHindi) {
+      return voices.find(v => v.lang === 'hi-IN') || voices.find(v => v.lang.toLowerCase().startsWith('hi')) || null;
+    }
+
     const languagePrefix = settings.language.toLowerCase().split('-')[0] ?? 'en';
     return (
       voices.find((voice) => voice.lang.toLowerCase().startsWith(settings.language.toLowerCase())) ??

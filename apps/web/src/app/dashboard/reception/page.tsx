@@ -299,12 +299,8 @@ export default function ReceptionPage() {
       if (generatedTokens.tokens.length === 1) {
         window.open(`/dashboard/tokens/${generatedTokens.tokens[0]!.id}/print?branch=${branchId}`, '_blank');
       } else {
-        // Simplistic print for multiple tokens: open print pages for each, or just the first one if multiple tabs is blocked by popup blockers
-        // For now, we will open the first one. Alternatively a combined print view could be built.
-        window.open(`/dashboard/tokens/${generatedTokens.tokens[0]!.id}/print?branch=${branchId}`, '_blank');
-        if (generatedTokens.tokens.length > 1) {
-          showMessage('Multiple tokens generated. Only printing the first token to avoid popup blocking.', 'success');
-        }
+        const tokenIds = generatedTokens.tokens.map(t => t.id).join(',');
+        window.open(`/dashboard/tokens/print?tokenIds=${tokenIds}&branch=${branchId}`, '_blank');
       }
     }
   }
@@ -484,7 +480,7 @@ export default function ReceptionPage() {
                 <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
                 </svg>
-                Print Token
+                Print {generatedTokens.tokens.length > 1 ? `${generatedTokens.tokens.length} Tokens` : 'Token'}
               </Button>
               <Button size="lg" variant="secondary" onClick={handleReset} className="w-full h-14 text-lg font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 border-0">
                 Generate Another
