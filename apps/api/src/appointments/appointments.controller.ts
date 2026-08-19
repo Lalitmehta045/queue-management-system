@@ -40,7 +40,10 @@ export class AppointmentsController {
   list(@CurrentTenant() tenant: AuthenticatedRequest['tenant'], @Param('branchId') branchId: string, @Query('page') page?: string, @Query('limit') limit?: string, @Query('status') status?: string, @Query('search') search?: string) {
     const pageNumber = page ? parseInt(page, 10) : 1;
     const limitNumber = limit ? parseInt(limit, 10) : 20;
-    return this.appointmentsService.list(this.requireTenant(tenant), branchId, { page: pageNumber, limit: limitNumber, status, search });
+    const queryPayload: { page: number; limit: number; status?: string; search?: string } = { page: pageNumber, limit: limitNumber };
+    if (status !== undefined) queryPayload.status = status;
+    if (search !== undefined) queryPayload.search = search;
+    return this.appointmentsService.list(this.requireTenant(tenant), branchId, queryPayload);
   }
 
   @Post(':appointmentId/check-in')
