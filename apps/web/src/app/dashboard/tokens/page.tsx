@@ -94,7 +94,10 @@ export default function TokensPage() {
           if (fetchedBranches.length === 0) {
             setState('empty');
           } else {
-            setBranchId(fetchedBranches[0].id);
+            const firstBranch = fetchedBranches[0];
+            if (firstBranch) {
+              setBranchId(firstBranch.id);
+            }
           }
         }
       } catch {
