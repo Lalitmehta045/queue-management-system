@@ -138,7 +138,7 @@ export class AuthService {
     return user;
   }
 
-  private async createTokens(userId: string, context: { userAgent?: string, ipAddress?: string } | null) {
+  private async createTokens(userId: string, context: { userAgent?: string | undefined, ipAddress?: string | undefined } | null) {
     const rawRefreshToken = crypto.randomBytes(32).toString('hex');
     const tokenHash = this.hashToken(rawRefreshToken);
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
@@ -148,8 +148,8 @@ export class AuthService {
         userId,
         tokenHash,
         expiresAt,
-        userAgent: context?.userAgent,
-        ipAddress: context?.ipAddress,
+        userAgent: context?.userAgent ?? null,
+        ipAddress: context?.ipAddress ?? null,
       },
     });
 

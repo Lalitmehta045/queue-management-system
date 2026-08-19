@@ -1,5 +1,18 @@
 import { Injectable, CanActivate, ExecutionContext, ForbiddenException, UnauthorizedException } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService } from '../../prisma/prisma.service';
+import { Request } from 'express';
+
+export interface AuthenticatedRequest extends Request {
+  user: {
+    userId: string;
+  };
+  tenant?: {
+    organizationId: string;
+    membershipId: string;
+    role: string;
+    branchId?: string | null;
+  };
+}
 
 @Injectable()
 export class TenantGuard implements CanActivate {
@@ -35,6 +48,7 @@ export class TenantGuard implements CanActivate {
       organizationId: membership.organizationId,
       membershipId: membership.id,
       role: membership.role,
+      branchId: membership.branchId,
     };
 
     return true;
