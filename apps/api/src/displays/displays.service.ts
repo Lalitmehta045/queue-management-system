@@ -150,8 +150,24 @@ export class DisplaysService {
     const recent = recentRows.filter((token) => token.id !== currentRowsId(currentTokens)).slice(0, 5).map((token) => this.toPublicToken(token));
     const waitingTotal = await this.prisma.token.count({ where: { ...businessDateFilter, status: TokenStatus.WAITING, queueEntry: { status: 'WAITING', service: { department: { branchId: display.branchId } } } } });
 
+    const now = new Date();
     const branchCounters = await this.prisma.counter.findMany({
-      where: { branchId: display.branchId, status: CounterStatus.ACTIVE },
+      where: {
+        branchId: display.branchId,
+        status: CounterStatus.ACTIVE,
+        assignments: {
+          some: {
+            user: {
+              refreshSessions: {
+                some: {
+                  revokedAt: null,
+                  expiresAt: { gt: now },
+                },
+              },
+            },
+          },
+        },
+      },
       select: { id: true, name: true, code: true },
       orderBy: { name: 'asc' },
     });

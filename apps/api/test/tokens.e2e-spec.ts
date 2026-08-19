@@ -212,13 +212,13 @@ describe('Tokens (e2e)', () => {
     expect(generated).toHaveLength(60);
     expect(new Set(generated.map((token) => token.sequenceNumber)).size).toBe(60);
     expect(new Set(generated.map((token) => token.displayNumber)).size).toBe(60);
-    expect(await prisma.tokenSequence.count({ where: { branchId: branchA1, serviceId: serviceA1, businessDate: new Date(`${businessDate}T00:00:00.000Z`) } })).toBe(1);
+    expect(await prisma.tokenSequence.count({ where: { branchId: branchA1, serviceId: serviceA1, businessDate: new Date(`${businessDate}T00:00:00.000Z`), tokenType: 'NORMAL' } })).toBe(1);
   });
 
   it('returns one Token for 50 concurrent requests for the same QueueEntry without consuming extra sequence numbers', async () => {
     const patient = await createPatient(tokenA, orgA, branchA1, 'Same Entry');
     const queueEntryId = await createQueueEntry(tokenA, orgA, branchA1, patient, serviceA1);
-    const sequenceBefore = await prisma.tokenSequence.findUnique({ where: { branchId_serviceId_businessDate: { branchId: branchA1, serviceId: serviceA1, businessDate: new Date(`${businessDate}T00:00:00.000Z`) } }, select: { nextNumber: true } });
+    const sequenceBefore = await prisma.tokenSequence.findUnique({ where: { branchId_serviceId_businessDate_tokenType: { branchId: branchA1, serviceId: serviceA1, businessDate: new Date(`${businessDate}T00:00:00.000Z`), tokenType: 'NORMAL' } }, select: { nextNumber: true } });
     const responses = await Promise.all(Array.from({ length: 50 }, () => tenantRequest(tokenA, orgA).post(`/branches/${branchA1}/queue-entries/${queueEntryId}/token`).send({})));
     expect(responses.every((response) => response.status === 201)).toBe(true);
     const returnedIds = new Set(responses.map((response) => (response.body as TokenResponse).id));
@@ -226,7 +226,7 @@ describe('Tokens (e2e)', () => {
     const storedTokens = await prisma.token.findMany({ where: { queueEntryId }, select: { id: true, sequenceNumber: true } });
     expect(storedTokens).toHaveLength(1);
     expect(storedTokens[0]!.id).toBe([...returnedIds][0]);
-    const sequenceAfter = await prisma.tokenSequence.findUniqueOrThrow({ where: { branchId_serviceId_businessDate: { branchId: branchA1, serviceId: serviceA1, businessDate: new Date(`${businessDate}T00:00:00.000Z`) } }, select: { nextNumber: true } });
+    const sequenceAfter = await prisma.tokenSequence.findUniqueOrThrow({ where: { branchId_serviceId_businessDate_tokenType: { branchId: branchA1, serviceId: serviceA1, businessDate: new Date(`${businessDate}T00:00:00.000Z`), tokenType: 'NORMAL' } }, select: { nextNumber: true } });
     expect(sequenceAfter.nextNumber).toBe((sequenceBefore?.nextNumber ?? 1) + 1);
   });
 
@@ -234,7 +234,7 @@ describe('Tokens (e2e)', () => {
     const patient = await createPatient(tokenA, orgA, branchA1, 'Rollback');
     const queueEntryId = await createQueueEntry(tokenA, orgA, branchA1, patient, serviceA1);
     const businessDateValue = new Date(`${businessDate}T00:00:00.000Z`);
-    const sequence = await prisma.tokenSequence.findUniqueOrThrow({ where: { branchId_serviceId_businessDate: { branchId: branchA1, serviceId: serviceA1, businessDate: businessDateValue } }, select: { id: true, nextNumber: true } });
+    const sequence = await prisma.tokenSequence.findUniqueOrThrow({ where: { branchId_serviceId_businessDate_tokenType: { branchId: branchA1, serviceId: serviceA1, businessDate: businessDateValue, tokenType: 'NORMAL' } }, select: { id: true, nextNumber: true } });
     const invalidQueueEntryId = randomUUID();
     await expect(prisma.$transaction(async (tx) => {
       const sequenceNumber = sequence.nextNumber;

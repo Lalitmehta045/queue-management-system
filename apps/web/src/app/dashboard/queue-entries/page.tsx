@@ -32,7 +32,7 @@ export default function QueueEntriesPage() {
   const [priority, setPriority] = useState('NORMAL');
   const [status, setStatus] = useState('WAITING');
   const [page, setPage] = useState(1);
-  const [state, setState] = useState<'loading' | 'ready' | 'error' | 'forbidden'>('loading');
+  const [state, setState] = useState<'loading' | 'ready' | 'error' | 'forbidden' | 'empty'>('loading');
   const [message, setMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const isMounted = useRef(true);
@@ -69,8 +69,13 @@ export default function QueueEntriesPage() {
         
         const branchList = await response.json();
         if (isMounted.current) {
-          setBranches(branchList.data || []);
-          setBranchId(branchList.data?.[0]?.id ?? '');
+          const fetchedBranches = branchList.data || [];
+          setBranches(fetchedBranches);
+          if (fetchedBranches.length === 0) {
+            setState('empty');
+          } else {
+            setBranchId(fetchedBranches[0].id);
+          }
         }
       } catch {
         if (isMounted.current) setState('error');
@@ -210,7 +215,15 @@ export default function QueueEntriesPage() {
   if (state === 'error') {
     return (
       <div className="max-w-3xl mx-auto mt-8">
-        <ErrorState title="Failed to load" message="Unable to load queue entry management." onRetry={() => window.location.reload()} />
+        <ErrorState title="Failed to load" message="Unable to load queue entry management. Please try again." onRetry={() => window.location.reload()} />
+      </div>
+    );
+  }
+
+  if (state === 'empty') {
+    return (
+      <div className="max-w-3xl mx-auto mt-8">
+        <EmptyState title="No branches assigned" description="You do not have any active branches assigned to your account." />
       </div>
     );
   }

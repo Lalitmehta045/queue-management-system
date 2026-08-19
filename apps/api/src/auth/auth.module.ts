@@ -5,6 +5,8 @@ import { ConfigService } from '@nestjs/config';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
+import { QueueCallingModule } from '../queue-calling/queue-calling.module';
+import { DisplaysModule } from '../displays/displays.module';
 
 @Module({
   imports: [
@@ -16,8 +18,12 @@ import { JwtStrategy } from './strategies/jwt.strategy';
         signOptions: { expiresIn: '15m' },
       }),
     }),
+    QueueCallingModule,
+    DisplaysModule,
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtStrategy],
+  exports: [AuthService],
 })
 export class AuthModule {}
+

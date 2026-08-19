@@ -62,6 +62,8 @@ export type Token = {
   displayNumber: string;
   sequenceNumber: number;
   businessDate: string;
+  type: 'NORMAL' | 'SPECIAL';
+  specialCategory: 'SENIOR_CITIZEN' | 'DISABLED' | null;
   status: TokenStatus;
   issuedAt: string;
   calledAt: string | null;
@@ -155,6 +157,6 @@ export type PrintTicket = {
 
 // ── Page State ──
 
-export type PageState = 'loading' | 'ready' | 'error' | 'forbidden';
-export type CounterPageState = PageState | 'reconnecting' | 'empty';
+export type PageState = 'loading' | 'ready' | 'error' | 'forbidden' | 'empty';
+export type CounterPageState = PageState | 'reconnecting';
 export type DisplayPageState = 'loading' | 'ready' | 'reconnecting' | 'error';

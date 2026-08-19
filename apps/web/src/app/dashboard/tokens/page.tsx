@@ -89,8 +89,13 @@ export default function TokensPage() {
         
         const branchList = await branchResponse.json() as { data: Branch[] };
         if (isMounted.current) {
-          setBranches(branchList.data || []);
-          setBranchId(branchList.data[0]?.id ?? '');
+          const fetchedBranches = branchList.data || [];
+          setBranches(fetchedBranches);
+          if (fetchedBranches.length === 0) {
+            setState('empty');
+          } else {
+            setBranchId(fetchedBranches[0].id);
+          }
         }
       } catch {
         if (isMounted.current) setState('error');
@@ -283,7 +288,15 @@ export default function TokensPage() {
   if (state === 'error') {
     return (
       <div className="max-w-3xl mx-auto mt-8">
-        <ErrorState title="Failed to load" message="Unable to load token management." onRetry={() => window.location.reload()} />
+        <ErrorState title="Failed to load" message="Unable to load token management. Please try again." onRetry={() => window.location.reload()} />
+      </div>
+    );
+  }
+
+  if (state === 'empty') {
+    return (
+      <div className="max-w-3xl mx-auto mt-8">
+        <EmptyState title="No branches assigned" description="You do not have any active branches assigned to your account." />
       </div>
     );
   }
@@ -416,6 +429,8 @@ export default function TokensPage() {
               <thead className="text-xs text-slate-500 uppercase bg-slate-50/50 border-b border-slate-100">
                 <tr>
                   <th className="px-6 py-3 font-semibold">Token</th>
+                  <th className="px-6 py-3 font-semibold">Type</th>
+                  <th className="px-6 py-3 font-semibold">Category</th>
                   <th className="px-6 py-3 font-semibold">Customer</th>
                   <th className="px-6 py-3 font-semibold">Service</th>
                   <th className="px-6 py-3 font-semibold">Priority</th>
@@ -432,6 +447,12 @@ export default function TokensPage() {
                   >
                     <td className="px-6 py-4">
                       <div className="font-bold text-teal-600 text-lg">{token.displayNumber}</div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="text-slate-900">{token.type === 'SPECIAL' ? 'Special' : 'Normal'}</div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="text-slate-500">{token.specialCategory ? token.specialCategory.replace('_', ' ') : '—'}</div>
                     </td>
                     <td className="px-6 py-4">
                       <div className="font-medium text-slate-900">{token.queueEntry.patient ? `${token.queueEntry.patient.firstName} ${token.queueEntry.patient.lastName}` : 'Walk-in Customer'}</div>

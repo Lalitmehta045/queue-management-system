@@ -40,9 +40,11 @@ describe('AuthController (e2e)', () => {
   it('/auth/register (POST)', async () => {
     const res = await request(app.getHttpServer())
       .post('/auth/register')
-      .send(testUser)
-      .expect(201);
+      .send(testUser);
     
+    if (res.status !== 201) console.log('REGISTER FAILED:', res.body);
+    expect(res.status).toBe(201);
+
     expect(res.body.accessToken).toBeDefined();
     expect(res.header['set-cookie']).toBeDefined();
     

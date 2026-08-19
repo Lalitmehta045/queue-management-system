@@ -1,5 +1,5 @@
-import { IsEnum, IsInt, IsOptional, IsUUID, Max, Min } from 'class-validator';
-import { PriorityLevel } from '@prisma/client';
+import { IsEnum, IsInt, IsOptional, IsUUID, Max, Min, ValidateIf } from 'class-validator';
+import { PriorityLevel, TokenType, SpecialCategory } from '@prisma/client';
 
 export class BulkGenerateTokenDto {
   @IsUUID()
@@ -16,4 +16,12 @@ export class BulkGenerateTokenDto {
   @IsOptional()
   @IsUUID()
   patientId?: string;
+
+  @IsOptional()
+  @IsEnum(TokenType)
+  type?: TokenType;
+
+  @ValidateIf((o) => o.specialCategory !== null && o.specialCategory !== undefined)
+  @IsEnum(SpecialCategory)
+  specialCategory?: SpecialCategory | null;
 }

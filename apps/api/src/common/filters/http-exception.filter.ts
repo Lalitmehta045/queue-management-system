@@ -56,8 +56,12 @@ export class HttpExceptionFilter implements ExceptionFilter {
       ? exception.getResponse()
       : "Internal server error";
 
-    // Use request.id if available, fallback to header
     const requestIdHeader = request.headers["x-request-id"];
+    
+    if (statusCode === 400) {
+      this.logger.debug(`[400 Error] Body: ${JSON.stringify(request.body)}, exception: ${JSON.stringify(exceptionResponse)}`);
+    }
+
     const requestId = request.id ?? (Array.isArray(requestIdHeader)
       ? requestIdHeader[0]
       : requestIdHeader);

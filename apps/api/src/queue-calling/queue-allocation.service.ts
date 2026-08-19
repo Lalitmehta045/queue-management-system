@@ -3,13 +3,49 @@ import { Prisma, CounterStatus } from '@prisma/client';
 
 @Injectable()
 export class QueueAllocationService {
-  async allocateWaitingToken(tx: Prisma.TransactionClient, branchId: string): Promise<string | null> {
+  /**
+   * Returns IDs of counters that are:
+   * 1. ACTIVE in the database
+   * 2. Have at least one assigned operator with a live (non-revoked, non-expired) RefreshSession
+   *
+   * This is the single source of truth for "operator is logged in / counter is online".
+   */
+  async getOnlineCounterIds(tx: Prisma.TransactionClient, branchId: string): Promise<string[]> {
+    const now = new Date();
     const counters = await tx.counter.findMany({
-      where: { branchId, status: CounterStatus.ACTIVE },
+      where: {
+        branchId,
+        status: CounterStatus.ACTIVE,
+        assignments: {
+          some: {
+            user: {
+              refreshSessions: {
+                some: {
+                  revokedAt: null,
+                  expiresAt: { gt: now },
+                },
+              },
+            },
+          },
+        },
+      },
+      select: { id: true },
+      orderBy: { code: 'asc' },
+    });
+    return counters.map((c) => c.id);
+  }
+
+  async allocateWaitingToken(tx: Prisma.TransactionClient, branchId: string): Promise<string | null> {
+    const onlineIds = await this.getOnlineCounterIds(tx, branchId);
+
+    if (!onlineIds.length) return null;
+
+    const counters = await tx.counter.findMany({
+      where: { id: { in: onlineIds } },
       select: { id: true, code: true },
       orderBy: { code: 'asc' },
     });
-    
+
     if (!counters.length) return null;
     
     const waitingCounts = await tx.token.groupBy({
@@ -39,12 +75,28 @@ export class QueueAllocationService {
   }
 
   async rebalanceWaitingTokens(tx: Prisma.TransactionClient, branchId: string): Promise<void> {
-    const counters = await tx.counter.findMany({
-      where: { branchId, status: CounterStatus.ACTIVE },
-      select: { id: true, code: true },
-      orderBy: { code: 'asc' },
-    });
-    if (!counters.length) return;
+    const onlineIds = await this.getOnlineCounterIds(tx, branchId);
+
+    const counters = onlineIds.length
+      ? await tx.counter.findMany({
+          where: { id: { in: onlineIds } },
+          select: { id: true, code: true },
+          orderBy: { code: 'asc' },
+        })
+      : [];
+
+    if (!counters.length) {
+      // No online counters: unassign all waiting tokens so they become unassigned
+      await tx.token.updateMany({
+        where: {
+          status: 'WAITING',
+          counterId: { not: null },
+          queueEntry: { service: { department: { branchId } } },
+        },
+        data: { counterId: null },
+      });
+      return;
+    }
 
     const waitingTokens = await tx.token.findMany({
       where: {
@@ -83,11 +135,15 @@ export class QueueAllocationService {
   }
 
   async backfillUnassignedWaitingTokens(tx: Prisma.TransactionClient, branchId: string, previewOnly: boolean = false) {
-    const counters = await tx.counter.findMany({
-      where: { branchId, status: CounterStatus.ACTIVE },
-      select: { id: true, code: true, name: true },
-      orderBy: { code: 'asc' },
-    });
+    const onlineIds = await this.getOnlineCounterIds(tx, branchId);
+
+    const counters = onlineIds.length
+      ? await tx.counter.findMany({
+          where: { id: { in: onlineIds } },
+          select: { id: true, code: true, name: true },
+          orderBy: { code: 'asc' },
+        })
+      : [];
 
     const summary: Record<string, number> = {};
     for (const c of counters) summary[`${c.name} (${c.code})`] = 0;
@@ -141,11 +197,15 @@ export class QueueAllocationService {
   }
 
   async allocateWaitingTokensBulk(tx: Prisma.TransactionClient, branchId: string, quantity: number): Promise<(string | null)[]> {
-    const counters = await tx.counter.findMany({
-      where: { branchId, status: CounterStatus.ACTIVE },
-      select: { id: true, code: true },
-      orderBy: { code: 'asc' },
-    });
+    const onlineIds = await this.getOnlineCounterIds(tx, branchId);
+
+    const counters = onlineIds.length
+      ? await tx.counter.findMany({
+          where: { id: { in: onlineIds } },
+          select: { id: true, code: true },
+          orderBy: { code: 'asc' },
+        })
+      : [];
     
     if (!counters.length) return Array(quantity).fill(null) as (string | null)[];
     

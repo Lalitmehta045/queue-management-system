@@ -11,6 +11,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ListTokensDto } from './dto/list-tokens.dto';
 import { BulkGenerateTokenDto } from './dto/bulk-generate-token.dto';
 import { QueueAllocationService } from '../queue-calling/queue-allocation.service';
+import { GenerateTokenDto } from './dto/generate-token.dto';
 import { getBusinessDate } from '../utils/date.util';
 
 
@@ -32,16 +33,31 @@ export class TokensService {
     private readonly queueAllocation: QueueAllocationService,
   ) {}
 
-  async generate(tenant: Tenant, branchId: string, queueEntryId: string, auditContext?: AuditContext) {
+  async generate(tenant: Tenant, branchId: string, queueEntryId: string, dtoOrAuditContext?: GenerateTokenDto | AuditContext, auditContextOrUndefined?: AuditContext) {
+    const isDto = dtoOrAuditContext && !('ipAddress' in dtoOrAuditContext || 'userAgent' in dtoOrAuditContext);
+    const dto = (isDto ? dtoOrAuditContext : undefined) as GenerateTokenDto | undefined;
+    const auditContext = (isDto ? auditContextOrUndefined : dtoOrAuditContext) as AuditContext | undefined;
+    
     const activeDate = await this.getActiveBusinessDate(branchId);
-    return this.generateForBusinessDate(tenant, branchId, queueEntryId, activeDate, auditContext);
+    return this.generateForBusinessDate(tenant, branchId, queueEntryId, activeDate, dto, auditContext);
   }
 
-  async generateForBusinessDate(tenant: Tenant, branchId: string, queueEntryId: string, businessDate: string, auditContext?: AuditContext) {
+  async generateForBusinessDate(tenant: Tenant, branchId: string, queueEntryId: string, businessDate: string, dto?: GenerateTokenDto, auditContext?: AuditContext) {
     await this.authorizeBranch(tenant, branchId);
     const normalizedBusinessDate = this.parseBusinessDate(businessDate);
     const businessDateKey = businessDate as BusinessDateKey;
-    await this.ensureSequence(branchId, await this.getQueueEntryServiceId(tenant.organizationId, branchId, queueEntryId), businessDateKey);
+
+    const tokenType = dto?.type ?? 'NORMAL';
+    const specialCategory = dto?.specialCategory ?? null;
+
+    if (tokenType === 'SPECIAL' && !specialCategory) {
+      throw new BadRequestException('Special category is required for SPECIAL tokens');
+    }
+    if (tokenType === 'NORMAL' && specialCategory) {
+      throw new BadRequestException('Special category must be null for NORMAL tokens');
+    }
+
+    await this.ensureSequence(branchId, await this.getQueueEntryServiceId(tenant.organizationId, branchId, queueEntryId), businessDateKey, tokenType);
 
     for (let attempt = 0; attempt < 50; attempt += 1) {
       try {
@@ -85,7 +101,7 @@ export class TokensService {
               ],
               service: { status: 'ACTIVE', department: { branchId, branch: { organizationId: tenant.organizationId } } },
             },
-            select: { id: true, patientId: true, serviceId: true, token: { select: this.tokenSelect }, service: { select: { name: true } } },
+            select: { id: true, patientId: true, serviceId: true, priority: true, token: { select: this.tokenSelect }, service: { select: { name: true } } },
           });
           if (!queueEntry) {
             console.error('FINDFIRST FAILED', { queueEntryId, branchId, orgId: tenant.organizationId });
@@ -93,7 +109,15 @@ export class TokensService {
           }
           if (queueEntry.token) return { token: queueEntry.token, created: false };
 
-          const sequence = await tx.tokenSequence.findUnique({ where: { branchId_serviceId_businessDate: { branchId, serviceId: queueEntry.serviceId, businessDate: normalizedBusinessDate } } });
+          // Enforce priority adjustment for special tokens if not already handled
+          if (tokenType === 'SPECIAL' && queueEntry.priority === 'NORMAL') {
+            await tx.queueEntry.update({
+              where: { id: queueEntry.id },
+              data: { priority: 'SENIOR_CITIZEN', priorityWeight: 60 }
+            });
+          }
+
+          const sequence = await tx.tokenSequence.findUnique({ where: { branchId_serviceId_businessDate_tokenType: { branchId, serviceId: queueEntry.serviceId, businessDate: normalizedBusinessDate, tokenType } } });
           if (!sequence) throw new RetryableTokenGenerationError('Token sequence was not available');
           const sequenceNumber = sequence.nextNumber;
           const claimed = await tx.tokenSequence.updateMany({ where: { id: sequence.id, nextNumber: sequenceNumber }, data: { nextNumber: { increment: 1 } } });
@@ -106,9 +130,11 @@ export class TokensService {
               queueEntryId: queueEntry.id,
               sequenceId: sequence.id,
               sequenceNumber,
-              displayNumber: this.displayNumber(sequenceNumber),
+              displayNumber: this.displayNumber(sequenceNumber, tokenType),
               businessDate: normalizedBusinessDate,
               counterId,
+              type: tokenType,
+              specialCategory,
             },
             select: this.tokenSelect,
           });
@@ -147,7 +173,21 @@ export class TokensService {
     const businessDateKey = activeDate;
     const serviceId = dto.serviceId;
     const quantity = dto.quantity;
-    const priority = dto.priority;
+    const tokenType = dto.type ?? 'NORMAL';
+    const specialCategory = dto.specialCategory ?? null;
+
+    if (tokenType === 'SPECIAL' && !specialCategory) {
+      throw new BadRequestException('Special category is required for SPECIAL tokens');
+    }
+    if (tokenType === 'NORMAL' && specialCategory) {
+      throw new BadRequestException('Special category must be null for NORMAL tokens');
+    }
+
+    let priority = dto.priority;
+    if (tokenType === 'SPECIAL' && priority === 'NORMAL') {
+      priority = 'SENIOR_CITIZEN';
+    }
+
     const patientId = dto.patientId ?? null;
 
     // Verify service exists and is active
@@ -173,7 +213,7 @@ export class TokensService {
     }
 
     // Ensure sequence exists
-    await this.ensureSequence(branchId, serviceId, businessDateKey);
+    await this.ensureSequence(branchId, serviceId, businessDateKey, tokenType);
 
     const priorityConfig = await this.prisma.priorityConfiguration.findFirst({
       where: {
@@ -211,7 +251,7 @@ export class TokensService {
           });
           await this.entitlements.enforceVolumeLimit(tenant.organizationId, 'maxWaitingQueueSize', waitingCount, quantity, tx);
 
-          const sequence = await tx.tokenSequence.findUnique({ where: { branchId_serviceId_businessDate: { branchId, serviceId, businessDate: normalizedBusinessDate } } });
+          const sequence = await tx.tokenSequence.findUnique({ where: { branchId_serviceId_businessDate_tokenType: { branchId, serviceId, businessDate: normalizedBusinessDate, tokenType } } });
           if (!sequence) throw new RetryableTokenGenerationError('Token sequence was not available');
           const sequenceNumber = sequence.nextNumber;
           
@@ -240,9 +280,11 @@ export class TokensService {
                 queueEntryId: qe.id,
                 sequenceId: sequence.id,
                 sequenceNumber: sequenceNumber + i,
-                displayNumber: this.displayNumber(sequenceNumber + i),
+                displayNumber: this.displayNumber(sequenceNumber + i, tokenType),
                 businessDate: normalizedBusinessDate,
                 counterId: assignments[i] ?? null,
+                type: tokenType,
+                specialCategory,
               },
               select: this.tokenSelect,
             });
@@ -459,9 +501,9 @@ export class TokensService {
     return entry.serviceId;
   }
 
-  private async ensureSequence(branchId: string, serviceId: string, businessDate: BusinessDateKey) {
+  private async ensureSequence(branchId: string, serviceId: string, businessDate: BusinessDateKey, tokenType: import('@prisma/client').TokenType) {
     try {
-      await this.prisma.tokenSequence.create({ data: { branchId, serviceId, businessDate: this.toDate(businessDate) }, select: { id: true } });
+      await this.prisma.tokenSequence.create({ data: { branchId, serviceId, businessDate: this.toDate(businessDate), tokenType }, select: { id: true } });
     } catch (error: unknown) {
       if (!this.isUniqueError(error)) throw error;
     }
@@ -500,8 +542,9 @@ export class TokensService {
     return new Date(`${value}T00:00:00.000Z`);
   }
 
-  private displayNumber(sequenceNumber: number) {
-    return `T-${sequenceNumber.toString().padStart(3, '0')}`;
+  private displayNumber(sequenceNumber: number, tokenType: import('@prisma/client').TokenType = 'NORMAL') {
+    const prefix = tokenType === 'SPECIAL' ? 'S' : 'T';
+    return `${prefix}-${sequenceNumber.toString().padStart(3, '0')}`;
   }
 
   private async waitForRetry(attempt: number) {
@@ -516,6 +559,8 @@ export class TokensService {
     displayNumber: true,
     businessDate: true,
     status: true,
+    type: true,
+    specialCategory: true,
     issuedAt: true,
     createdAt: true,
     updatedAt: true,

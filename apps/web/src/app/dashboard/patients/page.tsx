@@ -31,7 +31,7 @@ export default function PatientsPage() {
   const [form, setForm] = useState<FormState>(emptyForm);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
-  const [state, setState] = useState<'loading' | 'ready' | 'error' | 'forbidden'>('loading');
+  const [state, setState] = useState<'loading' | 'ready' | 'error' | 'forbidden' | 'empty'>('loading');
   const [message, setMessage] = useState('');
   const [formOpen, setFormOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -69,8 +69,13 @@ export default function PatientsPage() {
         
         const branchList = await response.json();
         if (isMounted.current) {
-          setBranches(branchList.data || []);
-          setBranchId(branchList.data?.[0]?.id ?? '');
+          const fetchedBranches = branchList.data || [];
+          setBranches(fetchedBranches);
+          if (fetchedBranches.length === 0) {
+            setState('empty');
+          } else {
+            setBranchId(fetchedBranches[0].id);
+          }
         }
       } catch {
         if (isMounted.current) setState('error');
@@ -166,7 +171,15 @@ export default function PatientsPage() {
   if (state === 'error') {
     return (
       <div className="max-w-3xl mx-auto mt-8">
-        <ErrorState title="Failed to load" message="Unable to load patient management." onRetry={() => window.location.reload()} />
+        <ErrorState title="Failed to load" message="Unable to load patient management. Please try again." onRetry={() => window.location.reload()} />
+      </div>
+    );
+  }
+
+  if (state === 'empty') {
+    return (
+      <div className="max-w-3xl mx-auto mt-8">
+        <EmptyState title="No branches assigned" description="You do not have any active branches assigned to your account." />
       </div>
     );
   }

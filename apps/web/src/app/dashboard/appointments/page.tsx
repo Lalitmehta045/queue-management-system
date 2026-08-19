@@ -54,7 +54,7 @@ export default function AppointmentsPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoadingAvailability, setIsLoadingAvailability] = useState(false);
   
-  const [state, setState] = useState<'loading'|'ready'|'error'|'forbidden'>('loading');
+  const [state, setState] = useState<'loading'|'ready'|'error'|'forbidden'|'empty'>('loading');
 
   const isMounted = useRef(true);
   useEffect(() => {
@@ -89,8 +89,13 @@ export default function AppointmentsPage() {
         
         const data = await br.json();
         if (isMounted.current) {
-          setBranches(data.data || []);
-          setBranchId(data.data[0]?.id ?? '');
+          const fetchedBranches = data.data || [];
+          setBranches(fetchedBranches);
+          if (fetchedBranches.length === 0) {
+            setState('empty');
+          } else {
+            setBranchId(fetchedBranches[0].id);
+          }
         }
       } catch {
         if (isMounted.current) setState('error');
@@ -251,7 +256,15 @@ export default function AppointmentsPage() {
   if (state === 'error') {
     return (
       <div className="max-w-3xl mx-auto mt-8">
-        <ErrorState title="Failed to load" message="Unable to load appointments." onRetry={() => window.location.reload()} />
+        <ErrorState title="Failed to load" message="Unable to load appointments. Please try again." onRetry={() => window.location.reload()} />
+      </div>
+    );
+  }
+
+  if (state === 'empty') {
+    return (
+      <div className="max-w-3xl mx-auto mt-8">
+        <EmptyState title="No branches assigned" description="You do not have any active branches assigned to your account." />
       </div>
     );
   }

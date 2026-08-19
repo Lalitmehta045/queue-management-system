@@ -10,8 +10,9 @@ import { Input } from '../../../components/ui/Input';
 import { Select } from '../../../components/ui/Select';
 import { CardSkeleton } from '../../../components/ui/Skeleton';
 import { ErrorState } from '../../../components/ui/ErrorState';
+import { EmptyState } from '../../../components/ui/EmptyState';
 
-type PageState = 'loading' | 'ready' | 'error' | 'forbidden';
+type PageState = 'loading' | 'ready' | 'error' | 'forbidden' | 'empty';
 type GeneratedToken = { id: string; displayNumber: string };
 type Step = 'form' | 'success';
 
@@ -38,6 +39,8 @@ export default function ReceptionPage() {
   const [selectedServiceId, setSelectedServiceId] = useState<string>('');
   const [priority, setPriority] = useState('NORMAL');
   const [quantity, setQuantity] = useState<number | ''>(1);
+  const [tokenType, setTokenType] = useState<'NORMAL' | 'SPECIAL'>('NORMAL');
+  const [specialCategory, setSpecialCategory] = useState<'SENIOR_CITIZEN' | 'DISABLED'>('SENIOR_CITIZEN');
   
   // Customer optional
   const [patientMode, setPatientMode] = useState<'none' | 'existing' | 'new'>('none');
@@ -93,8 +96,13 @@ export default function ReceptionPage() {
         
         const branchList = await branchResponse.json();
         if (isMounted.current) {
-          setBranches(branchList.data || []);
-          setBranchId(branchList.data?.[0]?.id ?? '');
+          const fetchedBranches = branchList.data || [];
+          setBranches(fetchedBranches);
+          if (fetchedBranches.length === 0) {
+            setState('empty');
+          } else {
+            setBranchId(fetchedBranches[0].id);
+          }
         }
       } catch {
         if (isMounted.current) setState('error');
@@ -121,19 +129,19 @@ export default function ReceptionPage() {
         const deptList = await deptRes.json();
         const depts = deptList.data || [];
 
-        const svcPromises = depts.map((d: Department) => 
-          fetchWithAuth(`/api/departments/${d.id}/services?page=1&limit=100`, { headers })
-            .then(r => r.ok ? r.json() : { data: [] })
-            .then(res => (res.data || []).map((s: Service) => ({ ...s, departmentId: d.id })))
-            .catch(() => [])
-        );
+        const svcPromises = depts.map(async (d: Department) => {
+          const r = await fetchWithAuth(`/api/departments/${d.id}/services?page=1&limit=100`, { headers });
+          if (!r.ok) throw new Error('Failed to fetch services');
+          const res = await r.json();
+          return (res.data || []).map((s: Service) => ({ ...s, departmentId: d.id }));
+        });
 
-        const prPromises = depts.map((d: Department) => 
-          fetchWithAuth(`/api/priority-configurations?departmentId=${d.id}`, { headers })
-            .then(r => r.ok ? r.json() : { data: [] })
-            .then(res => (res.data || []).map((p: PriorityConfig) => ({ ...p, departmentId: d.id })))
-            .catch(() => [])
-        );
+        const prPromises = depts.map(async (d: Department) => {
+          const r = await fetchWithAuth(`/api/priority-configurations?departmentId=${d.id}`, { headers });
+          if (!r.ok) throw new Error('Failed to fetch priorities');
+          const res = await r.json();
+          return (res.data || []).map((p: PriorityConfig) => ({ ...p, departmentId: d.id }));
+        });
 
         const svcsArray = await Promise.all(svcPromises);
         const prsArray = await Promise.all(prPromises);
@@ -230,7 +238,13 @@ export default function ReceptionPage() {
       const headers = { 'x-organization-id': organizationId };
 
       if (quantity > 1) {
-        const body: Record<string, unknown> = { serviceId: selectedService.id, priority, quantity };
+        const body: Record<string, unknown> = { 
+          serviceId: selectedService.id, 
+          priority, 
+          quantity,
+          type: tokenType,
+          specialCategory: tokenType === 'SPECIAL' ? specialCategory : null 
+        };
         if (targetPatientId) {
           body.patientId = targetPatientId;
         }
@@ -272,7 +286,7 @@ export default function ReceptionPage() {
         const tResponse = await fetchWithAuth(`/api/branches/${branchId}/queue-entries/${queueEntry.id}/token`, {
           method: 'POST',
           headers,
-          body: JSON.stringify({})
+          body: JSON.stringify({ type: tokenType, specialCategory: tokenType === 'SPECIAL' ? specialCategory : null })
         });
 
         if (!tResponse.ok) { showMessage('Queue entry created, but token generation failed.'); return; }
@@ -322,7 +336,15 @@ export default function ReceptionPage() {
   if (state === 'error') {
     return (
       <div className="max-w-2xl mx-auto mt-8" style={systemFont}>
-        <ErrorState title="Failed to load" message="Unable to load reception management." onRetry={() => window.location.reload()} />
+        <ErrorState title="Failed to load" message="Unable to load reception management. Please try again." onRetry={() => window.location.reload()} />
+      </div>
+    );
+  }
+
+  if (state === 'empty') {
+    return (
+      <div className="max-w-2xl mx-auto mt-8" style={systemFont}>
+        <EmptyState title="No branches assigned" description="You do not have any active branches assigned to your account." />
       </div>
     );
   }
@@ -370,6 +392,26 @@ export default function ReceptionPage() {
                 {allServices.length === 0 && <option value="">No services available</option>}
                 {allServices.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
               </Select>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-3">
+                <label className="block text-sm font-bold text-slate-700 uppercase tracking-wider">Token Type</label>
+                <div className="flex space-x-2 bg-slate-100 p-1 rounded-md">
+                  <button type="button" onClick={() => { setTokenType('NORMAL'); }} className={`flex-1 px-3 py-2 text-sm font-bold rounded ${tokenType === 'NORMAL' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}>Normal</button>
+                  <button type="button" onClick={() => { setTokenType('SPECIAL'); if (priority === 'NORMAL') setPriority('SENIOR_CITIZEN'); }} className={`flex-1 px-3 py-2 text-sm font-bold rounded ${tokenType === 'SPECIAL' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}>Special</button>
+                </div>
+              </div>
+              
+              {tokenType === 'SPECIAL' && (
+                <div className="space-y-3">
+                  <label className="block text-sm font-bold text-slate-700 uppercase tracking-wider">Special Category</label>
+                  <Select value={specialCategory} onChange={(e) => setSpecialCategory(e.target.value as any)} className="w-full text-lg h-12 shadow-sm">
+                    <option value="SENIOR_CITIZEN">Senior Citizen</option>
+                    <option value="DISABLED">Disabled / PwD</option>
+                  </Select>
+                </div>
+              )}
             </div>
 
             {availablePrioritiesForSelectedService.length > 1 && (
