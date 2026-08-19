@@ -1,8 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-
-export const NotificationProviderToken = Symbol('NotificationProviderToken');
-
+export const NotificationProviderToken = 'NotificationProviderToken';
 export type ProviderResult =
   | { ok: true; providerMessageId?: string; delivered: boolean }
   | { ok: false; transient: boolean; errorCode: string };
