@@ -6,8 +6,7 @@ import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
-import { AuditAction, Prisma, Role, MembershipStatus, OrganizationStatus } from '@prisma/client';
-import { AuditService } from '../audit/audit.service';
+import { Role, MembershipStatus, OrganizationStatus } from '@prisma/client';
 
 @Injectable()
 export class AuthService {
@@ -15,7 +14,6 @@ export class AuthService {
     private prisma: PrismaService,
     private jwtService: JwtService,
     private configService: ConfigService,
-    private audit: AuditService,
   ) {}
 
   private hashToken(token: string): string {
@@ -58,7 +56,7 @@ export class AuthService {
         },
       });
 
-      return this.createTokens(user.id, null, tx);
+      return this.createTokens(user.id, null);
     });
   }
 
@@ -70,40 +68,21 @@ export class AuthService {
 
     const passwordValid = await bcrypt.compare(dto.password, user.passwordHash);
     if (!passwordValid) {
-      await this.auditForUser(user.id, AuditAction.AUTH_LOGIN_FAILED, { reason: 'INVALID_CREDENTIALS', knownUser: true }, { ipAddress: ipAddress ?? null, userAgent: userAgent ?? null });
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    const context: { userAgent?: string; ipAddress?: string } = {};
-    if (userAgent) context.userAgent = userAgent;
-    if (ipAddress) context.ipAddress = ipAddress;
-    const tokens = await this.createTokens(user.id, context);
-    await this.auditForUser(user.id, AuditAction.AUTH_LOGIN, { knownUser: true }, { actorUserId: user.id, ipAddress: ipAddress ?? null, userAgent: userAgent ?? null });
-    return tokens;
+    return this.createTokens(user.id, { userAgent, ipAddress });
   }
 
-  async logout(sessionId: string, userAgent?: string, ipAddress?: string) {
-    const session = await this.prisma.refreshSession.findUnique({
-      where: { id: sessionId },
-      select: { userId: true },
-    });
+  async logout(sessionId: string) {
     await this.prisma.refreshSession.updateMany({
       where: { id: sessionId },
       data: { revokedAt: new Date() },
     });
-    if (session) {
-      await this.auditForUser(session.userId, AuditAction.AUTH_LOGOUT, {}, { actorUserId: session.userId, ipAddress: ipAddress ?? null, userAgent: userAgent ?? null });
-    }
   }
 
   async refresh(refreshToken: string, userAgent?: string, ipAddress?: string) {
     const tokenHash = this.hashToken(refreshToken);
-    
-    // Atomically attempt to revoke the token if it is currently active
-    const updateResult = await this.prisma.refreshSession.updateMany({
-      where: { tokenHash, revokedAt: null },
-      data: { revokedAt: new Date() },
-    });
     
     const session = await this.prisma.refreshSession.findFirst({
       where: { tokenHash },
@@ -113,10 +92,9 @@ export class AuthService {
       throw new UnauthorizedException('Invalid refresh token');
     }
 
-    if (updateResult.count === 0) {
-      // If count is 0, the token was ALREADY revoked by another process or earlier.
-      // This is a definitive token reuse scenario.
-      // Revoke ALL sessions for this user as a security measure.
+    if (session.revokedAt) {
+      // Refresh token reuse detected!
+      // Revoke ALL sessions for this user as a security measure
       await this.prisma.refreshSession.updateMany({
         where: { userId: session.userId, revokedAt: null },
         data: { revokedAt: new Date() },
@@ -128,10 +106,13 @@ export class AuthService {
       throw new UnauthorizedException('Refresh token expired');
     }
 
-    const context: { userAgent?: string; ipAddress?: string } = {};
-    if (userAgent) context.userAgent = userAgent;
-    if (ipAddress) context.ipAddress = ipAddress;
-    return this.createTokens(session.userId, context);
+    // Revoke old session
+    await this.prisma.refreshSession.update({
+      where: { id: session.id },
+      data: { revokedAt: new Date() },
+    });
+
+    return this.createTokens(session.userId, { userAgent, ipAddress });
   }
 
   async getMe(userId: string) {
@@ -157,22 +138,18 @@ export class AuthService {
     return user;
   }
 
-  private async createTokens(
-    userId: string,
-    context: { userAgent?: string, ipAddress?: string } | null,
-    prisma: Prisma.TransactionClient | PrismaService = this.prisma,
-  ) {
+  private async createTokens(userId: string, context: { userAgent?: string, ipAddress?: string } | null) {
     const rawRefreshToken = crypto.randomBytes(32).toString('hex');
     const tokenHash = this.hashToken(rawRefreshToken);
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
 
-    const session = await prisma.refreshSession.create({
+    const session = await this.prisma.refreshSession.create({
       data: {
         userId,
         tokenHash,
         expiresAt,
-        userAgent: context?.userAgent ?? null,
-        ipAddress: context?.ipAddress ?? null,
+        userAgent: context?.userAgent,
+        ipAddress: context?.ipAddress,
       },
     });
 
@@ -186,18 +163,5 @@ export class AuthService {
       refreshToken: rawRefreshToken,
       expiresIn: 15 * 60, // 15 mins
     };
-  }
-
-  private async auditForUser(
-    userId: string,
-    action: AuditAction,
-    metadata: Record<string, unknown>,
-    context: { actorUserId?: string | null; ipAddress?: string | null; userAgent?: string | null },
-  ) {
-    try {
-      await this.audit.recordForActiveMemberships(userId, action, metadata, context);
-    } catch {
-      // Audit membership lookup must not change authentication semantics.
-    }
   }
 }

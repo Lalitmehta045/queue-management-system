@@ -1,11 +1,9 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { AuditAction, AuditResourceType, Prisma, QueueEntryStatus, Role, TokenStatus } from '@prisma/client';
 import { AuditContext, AuditService } from '../audit/audit.service';
 import { isUUID } from 'class-validator';
 import { randomInt } from 'crypto';
 import { AuthenticatedRequest } from '../auth/guards/tenant.guard';
-import { ValidatedEnvironment } from '../config/env.validation';
 import { DisplayEventsService } from '../displays/display-events.service';
 import { EntitlementsService } from '../entitlements/entitlements.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -13,6 +11,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ListTokensDto } from './dto/list-tokens.dto';
 import { BulkGenerateTokenDto } from './dto/bulk-generate-token.dto';
 import { QueueAllocationService } from '../queue-calling/queue-allocation.service';
+import { getBusinessDate } from '../utils/date.util';
+
 
 type Tenant = NonNullable<AuthenticatedRequest['tenant']>;
 type BusinessDateKey = `${number}-${number}-${number}`;
@@ -21,7 +21,7 @@ class RetryableTokenGenerationError extends Error {}
 
 @Injectable()
 export class TokensService {
-  private readonly timeZone: string;
+  private readonly logger = new Logger(TokensService.name);
 
   constructor(
     private readonly prisma: PrismaService,
@@ -30,13 +30,11 @@ export class TokensService {
     private readonly audit: AuditService,
     private readonly entitlements: EntitlementsService,
     private readonly queueAllocation: QueueAllocationService,
-    configService: ConfigService<ValidatedEnvironment, true>,
-  ) {
-    this.timeZone = configService.get('TOKEN_TIME_ZONE');
-  }
+  ) {}
 
   async generate(tenant: Tenant, branchId: string, queueEntryId: string, auditContext?: AuditContext) {
-    return this.generateForBusinessDate(tenant, branchId, queueEntryId, this.businessDateKey(), auditContext);
+    const activeDate = await this.getActiveBusinessDate(branchId);
+    return this.generateForBusinessDate(tenant, branchId, queueEntryId, activeDate, auditContext);
   }
 
   async generateForBusinessDate(tenant: Tenant, branchId: string, queueEntryId: string, businessDate: string, auditContext?: AuditContext) {
@@ -144,8 +142,9 @@ export class TokensService {
 
   async generateBulk(tenant: Tenant, branchId: string, dto: BulkGenerateTokenDto, auditContext?: AuditContext) {
     await this.authorizeBranch(tenant, branchId);
-    const normalizedBusinessDate = this.parseBusinessDate(this.businessDateKey());
-    const businessDateKey = this.businessDateKey();
+    const activeDate = await this.getActiveBusinessDate(branchId);
+    const normalizedBusinessDate = this.parseBusinessDate(activeDate);
+    const businessDateKey = activeDate;
     const serviceId = dto.serviceId;
     const quantity = dto.quantity;
     const priority = dto.priority;
@@ -294,7 +293,8 @@ export class TokensService {
 
   async list(tenant: Tenant, branchId: string, query: ListTokensDto) {
     await this.authorizeBranch(tenant, branchId);
-    const businessDate = query.businessDate ? this.parseBusinessDate(query.businessDate) : this.toDate(this.businessDateKey());
+    const activeDateKey = query.businessDate ?? await this.getActiveBusinessDate(branchId);
+    const businessDate = this.parseBusinessDate(activeDateKey);
     const queueEntryScope = this.getQueueEntryScope(tenant.organizationId, branchId);
     const where: Prisma.TokenWhereInput = { businessDate, queueEntry: queueEntryScope };
     if (query.status) where.status = query.status;
@@ -308,12 +308,16 @@ export class TokensService {
         { queueEntry: { ...queueEntryScope, patient: { patientNumber: { contains: search, mode: 'insensitive' } } } },
       ];
     }
-    const orderBy: Prisma.TokenOrderByWithRelationInput = { [query.sortBy]: query.sortOrder };
+    const sortBy = query.sortBy || 'issuedAt';
+    const sortOrder = query.sortOrder || 'asc';
+    const orderBy: Prisma.TokenOrderByWithRelationInput = { [sortBy]: sortOrder };
+    const page = Number(query.page) || 1;
+    const limit = Number(query.limit) || 20;
     const [data, total] = await this.prisma.$transaction([
-      this.prisma.token.findMany({ where, orderBy: [orderBy, { id: 'asc' }], skip: (query.page - 1) * query.limit, take: query.limit, select: this.tokenSelect }),
+      this.prisma.token.findMany({ where, orderBy: [orderBy, { id: 'asc' }], skip: (page - 1) * limit, take: limit, select: this.tokenSelect }),
       this.prisma.token.count({ where }),
     ]);
-    return { data, meta: { page: query.page, limit: query.limit, total, totalPages: Math.ceil(total / query.limit), businessDate: query.businessDate ?? this.businessDateKey() } };
+    return { data, meta: { page, limit, total, totalPages: Math.ceil(total / limit), businessDate: activeDateKey } };
   }
 
   async get(tenant: Tenant, branchId: string, tokenId: string) {
@@ -351,6 +355,98 @@ export class TokensService {
       metadata: { queueEntryId: token.queueEntryId, displayNumber: token.displayNumber, status: token.status, businessDate: token.businessDate },
     });
     return token;
+  }
+
+  async resetTokenSequence(tenant: Tenant, branchId: string, auditContext?: AuditContext) {
+    await this.authorizeBranch(tenant, branchId);
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      // Lock the branch row to prevent concurrent resets/token generation
+      const lockedBranches = await tx.$queryRaw<{ id: string }[]>`
+        SELECT id FROM "Branch"
+        WHERE id = ${branchId}::uuid
+          AND "organizationId" = ${tenant.organizationId}::uuid
+        FOR UPDATE
+      `;
+      if (!lockedBranches.length) throw new NotFoundException('Branch not found');
+
+      // Count active tokens that will be affected
+      const activeTokenCount = await tx.token.count({
+        where: {
+          status: { in: [TokenStatus.WAITING, TokenStatus.CALLED, TokenStatus.SERVING] },
+          queueEntry: { service: { department: { branchId, branch: { organizationId: tenant.organizationId } } } },
+        },
+      });
+
+      // Cancel all active tokens (WAITING/CALLED/SERVING → CANCELLED)
+      if (activeTokenCount > 0) {
+        await tx.token.updateMany({
+          where: {
+            status: { in: [TokenStatus.WAITING, TokenStatus.CALLED, TokenStatus.SERVING] },
+            queueEntry: { service: { department: { branchId, branch: { organizationId: tenant.organizationId } } } },
+          },
+          data: { status: TokenStatus.CANCELLED },
+        });
+      }
+
+      // Cancel all WAITING queue entries and clear activeEntryKey
+      await tx.queueEntry.updateMany({
+        where: {
+          status: QueueEntryStatus.WAITING,
+          service: { department: { branchId, branch: { organizationId: tenant.organizationId } } },
+        },
+        data: { status: QueueEntryStatus.CANCELLED, activeEntryKey: null },
+      });
+
+      const branch = await tx.branch.findUnique({
+        where: { id: branchId },
+        include: { organization: { select: { timezone: true } } },
+      });
+      if (!branch) throw new NotFoundException('Branch not found');
+
+      const newBusinessDate = getBusinessDate(branch.organization.timezone);
+      const candidateKey = newBusinessDate.toISOString().slice(0, 10) as BusinessDateKey;
+
+      await tx.tokenSequence.updateMany({
+        where: { branchId, businessDate: newBusinessDate },
+        data: { nextNumber: 1 },
+      });
+
+      this.logger.log(`Token sequence reset for branch ${branchId}: ${activeTokenCount} tokens cancelled, new session date: ${candidateKey}`);
+
+      return { cancelledTokens: activeTokenCount, newBusinessDate: candidateKey };
+    });
+
+    // Publish queue update event so public displays clear immediately
+    this.displayEvents.publish(branchId, 'QUEUE_UPDATED');
+
+    // Record audit log
+    if (auditContext) {
+      await this.audit.record({
+        ...auditContext,
+        organizationId: tenant.organizationId,
+        branchId,
+        action: AuditAction.TOKEN_SEQUENCE_RESET,
+        resourceType: AuditResourceType.TOKEN,
+        resourceId: branchId,
+        metadata: {
+          cancelledTokens: result.cancelledTokens,
+          newBusinessDate: result.newBusinessDate,
+        },
+      });
+    }
+
+    return { success: true, ...result };
+  }
+
+  async getActiveBusinessDate(branchId: string): Promise<BusinessDateKey> {
+    const branch = await this.prisma.branch.findUnique({
+      where: { id: branchId },
+      include: { organization: { select: { timezone: true } } },
+    });
+    if (!branch) throw new NotFoundException('Branch not found');
+    
+    return getBusinessDate(branch.organization.timezone).toISOString().slice(0, 10) as BusinessDateKey;
   }
 
   private async getQueueEntryServiceId(organizationId: string, branchId: string, queueEntryId: string) {
@@ -392,12 +488,6 @@ export class TokensService {
   private async findScopedToken(organizationId: string, branchId: string, tokenId: string) {
     if (!isUUID(tokenId)) return null;
     return this.prisma.token.findFirst({ where: { id: tokenId, queueEntry: this.getQueueEntryScope(organizationId, branchId) }, select: this.tokenSelect });
-  }
-
-  private businessDateKey(now = new Date()): BusinessDateKey {
-    const parts = new Intl.DateTimeFormat('en-CA', { timeZone: this.timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(now);
-    const values = Object.fromEntries(parts.filter((part) => part.type !== 'literal').map((part) => [part.type, part.value]));
-    return `${values.year}-${values.month}-${values.day}` as BusinessDateKey;
   }
 
   private parseBusinessDate(value: string) {

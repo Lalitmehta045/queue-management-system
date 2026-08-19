@@ -37,7 +37,7 @@ export default function ReceptionPage() {
   const [step, setStep] = useState<Step>('form');
   const [selectedServiceId, setSelectedServiceId] = useState<string>('');
   const [priority, setPriority] = useState('NORMAL');
-  const [quantity, setQuantity] = useState<number>(1);
+  const [quantity, setQuantity] = useState<number | ''>(1);
   
   // Customer optional
   const [patientMode, setPatientMode] = useState<'none' | 'existing' | 'new'>('none');
@@ -220,6 +220,12 @@ export default function ReceptionPage() {
       return;
     }
 
+    if (typeof quantity !== 'number' || !Number.isInteger(quantity) || quantity < 1 || quantity > 50) {
+      showMessage('Please enter a valid quantity between 1 and 50.');
+      setIsSubmitting(false);
+      return;
+    }
+
     try {
       const headers = { 'x-organization-id': organizationId };
 
@@ -388,8 +394,12 @@ export default function ReceptionPage() {
                 step={1}
                 value={quantity} 
                 onChange={(e) => {
-                  const val = parseInt(e.target.value, 10);
-                  setQuantity(isNaN(val) ? 1 : val);
+                  if (e.target.value === '') {
+                    setQuantity('');
+                  } else {
+                    const val = Number(e.target.value);
+                    setQuantity(isNaN(val) ? '' : val);
+                  }
                 }}
                 className="w-full text-lg h-12 shadow-sm"
               />
@@ -433,10 +443,10 @@ export default function ReceptionPage() {
                 size="lg"
                 className="w-full shadow-lg shadow-teal-600/20 text-lg font-bold h-14"
                 onClick={() => void handleGenerateToken()}
-                disabled={isSubmitting || !selectedServiceId || quantity < 1 || quantity > 50}
+                disabled={isSubmitting || !selectedServiceId || typeof quantity !== 'number' || quantity < 1 || quantity > 50 || !Number.isInteger(quantity)}
                 isLoading={isSubmitting}
               >
-                {isSubmitting ? 'Generating...' : `GENERATE ${quantity > 1 ? quantity + ' ' : ''}TOKEN${quantity > 1 ? 'S' : ''}`}
+                {isSubmitting ? 'Generating...' : `GENERATE ${(typeof quantity === 'number' && quantity > 1) ? quantity + ' ' : ''}TOKEN${(typeof quantity === 'number' && quantity > 1) ? 'S' : ''}`}
               </Button>
             </div>
           </CardContent>

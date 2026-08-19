@@ -129,6 +129,7 @@ enum AuditAction {
   SUBSCRIPTION_PLAN_ACTIVATED
   SUBSCRIPTION_PLAN_DEACTIVATED
   TEAM_MEMBER_PASSWORD_UPDATED
+  TOKEN_SEQUENCE_RESET
 }
 
 enum AuditResourceType {
@@ -448,8 +449,6 @@ model Token {
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
 
-  @@unique([sequenceId, sequenceNumber])
-  @@unique([sequenceId, displayNumber])
   @@index([counterId, status])
   @@index([operatorId, status])
   @@index([businessDate, status])

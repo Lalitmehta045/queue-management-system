@@ -20,6 +20,7 @@ describe('DisplaysService', () => {
             token: { findMany: jest.fn(), count: jest.fn() },
             counter: { findMany: jest.fn() },
             display: { findUnique: jest.fn(), findFirst: jest.fn() },
+            branch: { findUnique: jest.fn() },
           },
         },
         {
@@ -48,6 +49,7 @@ describe('DisplaysService', () => {
   describe('buildPublicSnapshot', () => {
     it('should assign unique tokens to correct counters and remove NEXT from waiting', async () => {
       // Mock branches and counters
+      jest.spyOn(prismaService.branch, 'findUnique').mockResolvedValue({ organization: { timezone: 'UTC' } } as any);
       jest.spyOn(prismaService.counter, 'findMany').mockResolvedValue([
         { id: 'C1', name: 'Counter 1', code: 'C1', branchId: 'B1', status: 'ACTIVE', createdAt: new Date(), updatedAt: new Date() },
         { id: 'C2', name: 'Counter 2', code: 'C2', branchId: 'B1', status: 'ACTIVE', createdAt: new Date(), updatedAt: new Date() },

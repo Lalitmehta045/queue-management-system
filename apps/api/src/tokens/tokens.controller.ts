@@ -60,6 +60,13 @@ export class TokensController {
     return this.tokensService.cancel(requiredTenant, branchId, tokenId, getAuditContext(requiredTenant, user, request));
   }
 
+  @Post('tokens/reset')
+  @Roles(Role.ORG_ADMIN, Role.BRANCH_ADMIN)
+  resetTokenSequence(@CurrentTenant() tenant: AuthenticatedRequest['tenant'], @CurrentUser() user: { userId: string }, @Req() request: AuthenticatedRequest, @Param('branchId') branchId: string) {
+    const requiredTenant = this.requireTenant(tenant);
+    return this.tokensService.resetTokenSequence(requiredTenant, branchId, getAuditContext(requiredTenant, user, request));
+  }
+
   private requireTenant(tenant: AuthenticatedRequest['tenant']) {
     if (!tenant) throw new Error('Tenant context is required');
     return tenant;

@@ -60,6 +60,7 @@ describe('SelfService (e2e)', () => {
     await prisma.auditLog.deleteMany();
 
     await prisma.branch.deleteMany();
+    await prisma.membership.deleteMany();
     await prisma.organization.deleteMany();
 
     // Setup test data

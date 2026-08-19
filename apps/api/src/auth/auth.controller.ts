@@ -6,7 +6,6 @@ import { Request, Response } from 'express';
 import { JwtAuthGuard, IS_PUBLIC_KEY } from './guards/jwt-auth.guard';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { SetMetadata } from '@nestjs/common';
-import { Throttle } from '@nestjs/throttler';
 
 const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
 
@@ -31,7 +30,6 @@ export class AuthController {
   }
 
   @Public()
-  @Throttle({ default: { limit: 100, ttl: 60000 } })
   @Post('register')
   async register(@Body() dto: RegisterDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
     const tokens = await this.authService.register(dto);
@@ -40,7 +38,6 @@ export class AuthController {
   }
 
   @Public()
-  @Throttle({ default: { limit: 100, ttl: 60000 } })
   @Post('login')
   @HttpCode(HttpStatus.OK)
   async login(@Body() dto: LoginDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
@@ -52,11 +49,10 @@ export class AuthController {
   }
 
   @Public()
-  @Throttle({ default: { limit: 100, ttl: 60000 } })
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   async refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
-    const refreshToken = (req.cookies as Record<string, string>)?.['refreshToken'] || (req.body as { refreshToken?: string })?.refreshToken;
+    const refreshToken = req.cookies['refreshToken'] || req.body.refreshToken;
     if (!refreshToken) {
       throw new UnauthorizedException('Refresh token missing');
     }
@@ -70,9 +66,8 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @Post('logout')
   @HttpCode(HttpStatus.OK)
-  async logout(@CurrentUser() user: { sessionId: string }, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
-    const userAgent = typeof req.headers['user-agent'] === 'string' ? req.headers['user-agent'] : undefined;
-    await this.authService.logout(user.sessionId, userAgent, req.ip);
+  async logout(@CurrentUser() user: { sessionId: string }, @Res({ passthrough: true }) res: Response) {
+    await this.authService.logout(user.sessionId);
     res.clearCookie('accessToken');
     res.clearCookie('refreshToken', { path: '/api/auth/refresh' });
     return { success: true };

@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useEffect, useState, useRef, useCallback } from 'react';
+import { Suspense, useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
 
 import type { User, Branch, PrintTicket } from '../../../../types/queue';
@@ -17,7 +17,7 @@ const systemFont = {
 function BulkPrintTicketPage() {
   const searchParams = useSearchParams();
   const tokenIdsParam = searchParams.get('tokenIds');
-  const tokenIds = tokenIdsParam ? tokenIdsParam.split(',') : [];
+  const tokenIds = useMemo(() => tokenIdsParam ? tokenIdsParam.split(',') : [], [tokenIdsParam]);
   
   const [tickets, setTickets] = useState<PrintTicket[]>([]);
   const [state, setState] = useState<'loading' | 'ready' | 'forbidden' | 'error'>('loading');
@@ -127,7 +127,7 @@ function BulkPrintTicketPage() {
     return () => {
       cancelled = true;
     };
-  }, [searchParams]);
+  }, [searchParams, tokenIds]);
 
   const handleHardwarePrint = useCallback(async () => {
     if (!hardwarePrinterId || isSubmitting) return;

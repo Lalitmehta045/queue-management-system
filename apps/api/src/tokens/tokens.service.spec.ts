@@ -7,7 +7,6 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { AuditService } from '../audit/audit.service';
 import { EntitlementsService } from '../entitlements/entitlements.service';
 import { QueueAllocationService } from '../queue-calling/queue-allocation.service';
-import { ConfigService } from '@nestjs/config';
 import { BulkGenerateTokenDto } from './dto/bulk-generate-token.dto';
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-unsafe-return */
@@ -24,17 +23,18 @@ describe('TokensService Bulk Generation', () => {
   let mockAudit: any;
   let mockEntitlements: any;
   let mockQueueAllocation: any;
-  let mockConfigService: any;
 
   beforeEach(async () => {
     mockPrisma = {
       $transaction: jest.fn((callback) => callback(mockPrisma)),
+      $queryRaw: jest.fn().mockResolvedValue([{ id: 'branch-1' }]),
       service: { findFirst: jest.fn() },
       patient: { findFirst: jest.fn() },
+      branch: { findFirst: jest.fn().mockResolvedValue({ id: 'branch-1' }), findUnique: jest.fn().mockResolvedValue({ organization: { timezone: 'Asia/Kolkata' } }), update: jest.fn() },
       priorityConfiguration: { findFirst: jest.fn() },
-      tokenSequence: { create: jest.fn(), findUnique: jest.fn(), updateMany: jest.fn() },
-      token: { count: jest.fn(), create: jest.fn() },
-      queueEntry: { count: jest.fn(), create: jest.fn() },
+      tokenSequence: { create: jest.fn(), findFirst: jest.fn(), findUnique: jest.fn(), updateMany: jest.fn() },
+      token: { count: jest.fn(), create: jest.fn(), updateMany: jest.fn() },
+      queueEntry: { count: jest.fn(), create: jest.fn(), updateMany: jest.fn() },
     };
 
     mockDisplayEvents = { publish: jest.fn() };
@@ -42,7 +42,6 @@ describe('TokensService Bulk Generation', () => {
     mockAudit = { record: jest.fn() };
     mockEntitlements = { lockOrganization: jest.fn(), enforceVolumeLimit: jest.fn() };
     mockQueueAllocation = { allocateWaitingTokensBulk: jest.fn() };
-    mockConfigService = { get: jest.fn().mockReturnValue('UTC') };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -53,12 +52,10 @@ describe('TokensService Bulk Generation', () => {
         { provide: AuditService, useValue: mockAudit },
         { provide: EntitlementsService, useValue: mockEntitlements },
         { provide: QueueAllocationService, useValue: mockQueueAllocation },
-        { provide: ConfigService, useValue: mockConfigService },
       ],
     }).compile();
 
     service = module.get<TokensService>(TokensService);
-    // private method override
     service['authorizeBranch'] = jest.fn().mockResolvedValue(true);
   });
 
@@ -106,17 +103,14 @@ describe('TokensService Bulk Generation', () => {
     expect(mockPrisma.queueEntry.create).toHaveBeenCalledTimes(5);
     expect(mockPrisma.token.create).toHaveBeenCalledTimes(5);
     
-    // Verify sequence increment
     expect(mockPrisma.tokenSequence.updateMany).toHaveBeenCalledWith({
       where: { id: 'seq1', nextNumber: 21 },
       data: { nextNumber: { increment: 5 } }
     });
     
-    // Verify tokens were generated sequentially
     expect(result.tokens[0]!.displayNumber).toBe('T-021');
     expect(result.tokens[4]!.displayNumber).toBe('T-025');
     
-    // Single event emit
     expect(mockDisplayEvents.publish).toHaveBeenCalledTimes(1);
   });
 
@@ -126,17 +120,14 @@ describe('TokensService Bulk Generation', () => {
     mockPrisma.tokenSequence.updateMany.mockResolvedValue({ count: 1 });
     mockQueueAllocation.allocateWaitingTokensBulk.mockResolvedValue(['c1', 'c2']);
     
-    // Fail on the second queue entry creation
     mockPrisma.queueEntry.create
       .mockResolvedValueOnce({ id: 'qe1' })
       .mockRejectedValueOnce(new Error('Simulated DB Failure'));
 
     const dto: BulkGenerateTokenDto = { serviceId: 's1', quantity: 2, priority: PriorityLevel.NORMAL };
     
-    // The entire generateBulk is wrapped in $transaction, so a failure here causes the transaction to abort and throw.
     await expect(service.generateBulk(tenant, branchId, dto)).rejects.toThrow('Simulated DB Failure');
     
-    // Because it throws, it doesn't return any partial tokens
     expect(mockDisplayEvents.publish).not.toHaveBeenCalled();
   });
   
@@ -144,5 +135,183 @@ describe('TokensService Bulk Generation', () => {
     mockPrisma.service.findFirst.mockResolvedValue(null);
     const dto: BulkGenerateTokenDto = { serviceId: 'invalid', quantity: 5, priority: PriorityLevel.NORMAL };
     await expect(service.generateBulk(tenant, branchId, dto)).rejects.toThrow(NotFoundException);
+  });
+});
+
+describe('TokensService Reset Token Sequence', () => {
+  let service: TokensService;
+  let mockPrisma: any;
+  let mockDisplayEvents: any;
+  let mockAudit: any;
+
+  beforeEach(async () => {
+    mockPrisma = {
+      $transaction: jest.fn((callback) => callback(mockPrisma)),
+      $queryRaw: jest.fn().mockResolvedValue([{ id: 'branch-1' }]),
+      branch: { findFirst: jest.fn().mockResolvedValue({ id: 'branch-1' }), findUnique: jest.fn().mockResolvedValue({ organization: { timezone: 'Asia/Kolkata' } }), update: jest.fn() },
+      token: { count: jest.fn(), updateMany: jest.fn(), create: jest.fn() },
+      queueEntry: { count: jest.fn(), updateMany: jest.fn(), create: jest.fn() },
+      tokenSequence: { findFirst: jest.fn(), findUnique: jest.fn(), create: jest.fn(), updateMany: jest.fn() },
+      service: { findFirst: jest.fn() },
+    };
+
+    mockDisplayEvents = { publish: jest.fn() };
+    mockAudit = { record: jest.fn() };
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        TokensService,
+        { provide: PrismaService, useValue: mockPrisma },
+        { provide: DisplayEventsService, useValue: mockDisplayEvents },
+        { provide: NotificationsService, useValue: { onTokenCreated: jest.fn().mockResolvedValue(undefined) } },
+        { provide: AuditService, useValue: mockAudit },
+        { provide: EntitlementsService, useValue: { lockOrganization: jest.fn(), enforceVolumeLimit: jest.fn() } },
+        { provide: QueueAllocationService, useValue: { allocateWaitingTokensBulk: jest.fn() } },
+      ],
+    }).compile();
+
+    service = module.get<TokensService>(TokensService);
+    service['authorizeBranch'] = jest.fn().mockResolvedValue(true);
+  });
+
+  const tenant: any = { organizationId: 'org-1', role: 'ORG_ADMIN' };
+  const branchId = 'branch-1';
+
+  it('1. Reset cancels active tokens and returns success', async () => {
+    mockPrisma.token.count.mockResolvedValue(3);
+    mockPrisma.token.updateMany.mockResolvedValue({ count: 3 });
+    mockPrisma.queueEntry.updateMany.mockResolvedValue({ count: 2 });
+    mockPrisma.tokenSequence.findFirst.mockResolvedValue(null);
+    mockPrisma.branch.update.mockResolvedValue({});
+
+    const result = await service.resetTokenSequence(tenant, branchId);
+
+    expect(result.success).toBe(true);
+    expect(result.cancelledTokens).toBe(3);
+    expect(result.newBusinessDate).toBeDefined();
+    expect(mockDisplayEvents.publish).toHaveBeenCalledWith(branchId, 'QUEUE_UPDATED');
+  });
+
+  it('2. Reset with no active tokens still succeeds', async () => {
+    mockPrisma.token.count.mockResolvedValue(0);
+    mockPrisma.queueEntry.updateMany.mockResolvedValue({ count: 0 });
+    mockPrisma.tokenSequence.findFirst.mockResolvedValue(null);
+    mockPrisma.branch.update.mockResolvedValue({});
+
+    const result = await service.resetTokenSequence(tenant, branchId);
+
+    expect(result.success).toBe(true);
+    expect(result.cancelledTokens).toBe(0);
+    expect(mockPrisma.token.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('3. Reset sequence updates nextNumber to 1 for current date', async () => {
+    mockPrisma.token.count.mockResolvedValue(1);
+    mockPrisma.token.updateMany.mockResolvedValue({ count: 1 });
+    mockPrisma.queueEntry.updateMany.mockResolvedValue({ count: 0 });
+    mockPrisma.branch.findUnique.mockResolvedValue({ organization: { timezone: 'Asia/Kolkata' } });
+    mockPrisma.tokenSequence.updateMany.mockResolvedValue({ count: 1 });
+
+    const result = await service.resetTokenSequence(tenant, branchId);
+
+    expect(result.success).toBe(true);
+    expect(mockPrisma.tokenSequence.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ branchId }),
+        data: { nextNumber: 1 },
+      })
+    );
+  });
+
+  it('4. Reset records audit log', async () => {
+    mockPrisma.token.count.mockResolvedValue(5);
+    mockPrisma.token.updateMany.mockResolvedValue({ count: 5 });
+    mockPrisma.queueEntry.updateMany.mockResolvedValue({ count: 3 });
+    mockPrisma.tokenSequence.findFirst.mockResolvedValue(null);
+    mockPrisma.branch.update.mockResolvedValue({});
+
+    const auditContext = { organizationId: 'org-1', actorUserId: 'user-1' };
+    await service.resetTokenSequence(tenant, branchId, auditContext);
+
+    expect(mockAudit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'TOKEN_SEQUENCE_RESET',
+        resourceType: 'TOKEN',
+        resourceId: branchId,
+        metadata: expect.objectContaining({
+          cancelledTokens: 5,
+          newBusinessDate: expect.any(String),
+        }),
+      })
+    );
+  });
+
+  it('5. Reset publishes QUEUE_UPDATED event for SSE', async () => {
+    mockPrisma.token.count.mockResolvedValue(0);
+    mockPrisma.queueEntry.updateMany.mockResolvedValue({ count: 0 });
+    mockPrisma.tokenSequence.findFirst.mockResolvedValue(null);
+    mockPrisma.branch.update.mockResolvedValue({});
+
+    await service.resetTokenSequence(tenant, branchId);
+
+    expect(mockDisplayEvents.publish).toHaveBeenCalledWith(branchId, 'QUEUE_UPDATED');
+    expect(mockDisplayEvents.publish).toHaveBeenCalledTimes(1);
+  });
+
+  it('6. Reset is atomic - uses transaction', async () => {
+    mockPrisma.token.count.mockResolvedValue(0);
+    mockPrisma.queueEntry.updateMany.mockResolvedValue({ count: 0 });
+    mockPrisma.tokenSequence.findFirst.mockResolvedValue(null);
+    mockPrisma.branch.update.mockResolvedValue({});
+
+    await service.resetTokenSequence(tenant, branchId);
+
+    expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('7. Reset cancels queue entries with activeEntryKey cleared', async () => {
+    mockPrisma.token.count.mockResolvedValue(0);
+    mockPrisma.queueEntry.updateMany.mockResolvedValue({ count: 2 });
+    mockPrisma.tokenSequence.findFirst.mockResolvedValue(null);
+    mockPrisma.branch.update.mockResolvedValue({});
+
+    await service.resetTokenSequence(tenant, branchId);
+
+    expect(mockPrisma.queueEntry.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: { status: 'CANCELLED', activeEntryKey: null },
+      })
+    );
+  });
+
+  it('8. getActiveBusinessDate returns date based on organization timezone', async () => {
+    mockPrisma.branch.findUnique.mockResolvedValue({ organization: { timezone: 'Asia/Kolkata' } });
+    
+    const result = await service.getActiveBusinessDate(branchId);
+    
+    expect(result).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it('9. getActiveBusinessDate handles fallback to UTC if timezone is missing', async () => {
+    mockPrisma.branch.findUnique.mockResolvedValue({ organization: { timezone: '' } });
+    
+    const result = await service.getActiveBusinessDate(branchId);
+    
+    expect(result).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it('10. Reset does not delete any records', async () => {
+    mockPrisma.token.count.mockResolvedValue(3);
+    mockPrisma.token.updateMany.mockResolvedValue({ count: 3 });
+    mockPrisma.queueEntry.updateMany.mockResolvedValue({ count: 2 });
+    mockPrisma.tokenSequence.findFirst.mockResolvedValue(null);
+    mockPrisma.branch.update.mockResolvedValue({});
+
+    await service.resetTokenSequence(tenant, branchId);
+
+    // Verify no deleteMany was called on any model
+    expect(mockPrisma.token.deleteMany).toBeUndefined();
+    expect(mockPrisma.queueEntry.deleteMany).toBeUndefined();
+    expect(mockPrisma.tokenSequence.deleteMany).toBeUndefined();
   });
 });

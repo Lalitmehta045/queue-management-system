@@ -2,7 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { DisplayEventsService } from '../displays/display-events.service';
-import { AuditAction, AuditResourceType, TokenStatus, QueueEntryStatus, Prisma } from '@prisma/client';
+import { AuditAction, AuditResourceType, TokenStatus, QueueEntryStatus } from '@prisma/client';
+import { getBusinessDate } from '../utils/date.util';
 
 @Injectable()
 export class TasksService {
@@ -39,17 +40,8 @@ export class TasksService {
         if (localHour === 24) localHour = 0;
 
         if (localHour >= 20) {
-          // Format local date as YYYY-MM-DD
-          const formatterDate = new Intl.DateTimeFormat('en-CA', {
-            timeZone: timezone,
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit',
-          });
-          const localDateString = formatterDate.format(new Date());
-          
           // Create UTC midnight Date object representing the business date
-          const businessDate = new Date(`${localDateString}T00:00:00.000Z`);
+          const businessDate = getBusinessDate(timezone);
 
           const tokensToCancel = await this.prisma.token.findMany({
             where: {

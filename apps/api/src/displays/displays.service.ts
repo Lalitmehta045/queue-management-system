@@ -9,6 +9,8 @@ import { DisplayEventsService } from './display-events.service';
 import { EntitlementsService } from '../entitlements/entitlements.service';
 import { CreateDisplayDto } from './dto/create-display.dto';
 import { UpdateDisplayDto } from './dto/update-display.dto';
+import { getBusinessDate } from '../utils/date.util';
+
 
 type Tenant = NonNullable<AuthenticatedRequest['tenant']>;
 type PublicToken = { tokenLabel: string; counter: string; status: TokenStatus; service?: string; department?: string; recalled: boolean; recallCount: number; calledAt: string | null };
@@ -125,21 +127,28 @@ export class DisplaysService {
   }
 
   private async buildPublicSnapshot(display: { name: string; logoUrl: string | null; branchId: string }) {
+    // Fetch the branch's active business date for session filtering
+    const branch = await this.prisma.branch.findUnique({
+      where: { id: display.branchId },
+      include: { organization: { select: { timezone: true } } },
+    });
+    const businessDateFilter: Prisma.TokenWhereInput = branch ? { businessDate: getBusinessDate(branch.organization.timezone) } : {};
+
     const currentTokens = await this.prisma.token.findMany({
-      where: { status: { in: [TokenStatus.CALLED, TokenStatus.SERVING] }, counterId: { not: null }, queueEntry: { service: { department: { branchId: display.branchId } } } },
+      where: { ...businessDateFilter, status: { in: [TokenStatus.CALLED, TokenStatus.SERVING] }, counterId: { not: null }, queueEntry: { service: { department: { branchId: display.branchId } } } },
       orderBy: [{ calledAt: 'desc' }, { id: 'desc' }],
       take: 1,
       select: this.publicTokenSelect,
     });
     const current = currentTokens[0] ? this.toPublicToken(currentTokens[0]) : null;
     const recentRows = await this.prisma.token.findMany({
-      where: { calledAt: { not: null }, queueEntry: { service: { department: { branchId: display.branchId } } } },
+      where: { ...businessDateFilter, calledAt: { not: null }, queueEntry: { service: { department: { branchId: display.branchId } } } },
       orderBy: [{ calledAt: 'desc' }, { id: 'desc' }],
       take: 8,
       select: this.publicTokenSelect,
     });
     const recent = recentRows.filter((token) => token.id !== currentRowsId(currentTokens)).slice(0, 5).map((token) => this.toPublicToken(token));
-    const waitingTotal = await this.prisma.token.count({ where: { status: TokenStatus.WAITING, queueEntry: { status: 'WAITING', service: { department: { branchId: display.branchId } } } } });
+    const waitingTotal = await this.prisma.token.count({ where: { ...businessDateFilter, status: TokenStatus.WAITING, queueEntry: { status: 'WAITING', service: { department: { branchId: display.branchId } } } } });
 
     const branchCounters = await this.prisma.counter.findMany({
       where: { branchId: display.branchId, status: CounterStatus.ACTIVE },
@@ -148,7 +157,7 @@ export class DisplaysService {
     });
     
     const activeCountersTokens = await this.prisma.token.findMany({
-      where: { status: { in: [TokenStatus.CALLED, TokenStatus.SERVING] }, counterId: { not: null }, queueEntry: { service: { department: { branchId: display.branchId } } } },
+      where: { ...businessDateFilter, status: { in: [TokenStatus.CALLED, TokenStatus.SERVING] }, counterId: { not: null }, queueEntry: { service: { department: { branchId: display.branchId } } } },
       orderBy: [{ calledAt: 'desc' }, { id: 'desc' }],
       select: this.publicTokenSelect,
     });
@@ -157,7 +166,7 @@ export class DisplaysService {
       const nowToken = activeCountersTokens.find((t) => t.counterId === counter.id);
       
       const counterWaitingTokens = await this.prisma.token.findMany({
-        where: { status: TokenStatus.WAITING, counterId: counter.id },
+        where: { ...businessDateFilter, status: TokenStatus.WAITING, counterId: counter.id },
         orderBy: [{ queueEntry: { priorityWeight: 'desc' } }, { businessDate: 'asc' }, { sequenceNumber: 'asc' }, { id: 'asc' }],
         select: this.publicTokenSelect,
       });

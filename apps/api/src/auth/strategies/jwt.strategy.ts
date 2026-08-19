@@ -10,19 +10,19 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     super({
       jwtFromRequest: ExtractJwt.fromExtractors([
         (request: Request) => {
-          let data = request?.cookies?.['accessToken'] as string | undefined;
+          let data = request?.cookies['accessToken'];
           if (!data) {
-            data = ExtractJwt.fromAuthHeaderAsBearerToken()(request) as string | undefined;
+            data = ExtractJwt.fromAuthHeaderAsBearerToken()(request);
           }
-          return data || null;
+          return data;
         },
       ]),
       ignoreExpiration: false,
-      secretOrKey: configService.get<string>('JWT_ACCESS_SECRET') as string,
+      secretOrKey: configService.get('JWT_ACCESS_SECRET'),
     });
   }
 
-  validate(payload: { sub: string, sessionId: string }) {
+  async validate(payload: any) {
     if (!payload.sub || !payload.sessionId) {
       throw new UnauthorizedException();
     }

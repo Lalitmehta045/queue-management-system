@@ -35,7 +35,7 @@ const METADATA_ALLOWLIST: Record<AuditResourceType, readonly string[]> = {
   OPERATOR_ASSIGNMENT: ['counterId', 'operatorUserId'],
   PATIENT: ['patientNumber', 'status', 'changedFields'],
   QUEUE_ENTRY: ['patientId', 'patientNumber', 'serviceId', 'serviceName', 'status'],
-  TOKEN: ['queueEntryId', 'displayNumber', 'status', 'counterId', 'counterName', 'operatorUserId', 'recallCount', 'businessDate'],
+  TOKEN: ['queueEntryId', 'displayNumber', 'status', 'counterId', 'counterName', 'operatorUserId', 'recallCount', 'businessDate', 'cancelledTokens', 'newBusinessDate', 'bulk', 'quantity', 'serviceId', 'patientId', 'firstDisplayNumber', 'lastDisplayNumber'],
   APPOINTMENT: ['patientId', 'serviceId', 'appointmentDate', 'startAt', 'status', 'changedFields'],
   NOTIFICATION_SETTING: ['changedFields'],
   DISPLAY: ['name', 'active', 'changedFields'],

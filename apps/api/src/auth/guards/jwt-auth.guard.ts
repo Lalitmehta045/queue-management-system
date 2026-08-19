@@ -21,11 +21,10 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     return super.canActivate(context);
   }
 
-  // Base class uses any, this is a framework limitation
-  handleRequest<TUser = { userId: string; sessionId: string }>(err: unknown, user: unknown): TUser {
+  handleRequest(err: any, user: any) {
     if (err || !user) {
-      throw err instanceof Error ? err : new UnauthorizedException();
+      throw err || new UnauthorizedException();
     }
-    return user as TUser;
+    return user;
   }
 }

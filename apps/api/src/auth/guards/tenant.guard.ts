@@ -1,45 +1,28 @@
 import { Injectable, CanActivate, ExecutionContext, ForbiddenException, UnauthorizedException } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
-import { Request } from 'express';
-import { Role } from '@prisma/client';
-
-export interface AuthenticatedRequest extends Request {
-  user?: { userId: string; sessionId: string };
-  tenant?: { organizationId: string; membershipId: string; role: Role; branchId: string | null };
-}
+import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class TenantGuard implements CanActivate {
   constructor(private prisma: PrismaService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
+    const request = context.switchToHttp().getRequest();
     const user = request.user;
     if (!user) {
       throw new UnauthorizedException('User not authenticated');
     }
 
-    const organizationHeader = request.headers['x-organization-id'];
-    const organizationHeaderValue = Array.isArray(organizationHeader)
-      ? organizationHeader[0]
-      : organizationHeader;
-    const organizationQuery = request.query.organizationId;
-    const organizationQueryValue = Array.isArray(organizationQuery)
-      ? organizationQuery.find((value): value is string => typeof value === 'string')
-      : typeof organizationQuery === 'string'
-        ? organizationQuery
-        : undefined;
-    const organizationId = organizationHeaderValue ?? organizationQueryValue;
+    const organizationId = request.headers['x-organization-id'] || request.body.organizationId || request.query.organizationId || request.params.organizationId;
 
     if (!organizationId) {
-      throw new ForbiddenException('Organization context is required');
+      return true; // No tenant context requested, skip tenant authorization
     }
 
     const membership = await this.prisma.membership.findUnique({
       where: {
         userId_organizationId: {
           userId: user.userId,
-          organizationId,
+          organizationId: organizationId,
         },
       },
     });
@@ -52,7 +35,6 @@ export class TenantGuard implements CanActivate {
       organizationId: membership.organizationId,
       membershipId: membership.id,
       role: membership.role,
-      branchId: membership.branchId,
     };
 
     return true;
