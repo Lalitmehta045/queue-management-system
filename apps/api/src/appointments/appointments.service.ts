@@ -79,6 +79,42 @@ export class AppointmentsService {
     return appt;
   }
 
+  async list(tenant: Tenant, branchId: string, query: { page: number; limit: number; status?: string; search?: string }) {
+    await this.authorizeBranch(tenant, branchId);
+    const where: Prisma.AppointmentWhereInput = { branchId, branch: { organizationId: tenant.organizationId } };
+    
+    if (query.status) {
+      where.status = query.status as any;
+    }
+    
+    if (query.search?.trim()) {
+      where.patient = {
+        OR: [
+          { patientNumber: { contains: query.search.trim(), mode: 'insensitive' } },
+          { firstName: { contains: query.search.trim(), mode: 'insensitive' } },
+          { lastName: { contains: query.search.trim(), mode: 'insensitive' } },
+        ],
+      };
+    }
+    
+    const [data, total] = await this.prisma.$transaction([
+      this.prisma.appointment.findMany({
+        where,
+        orderBy: { startAt: 'desc' },
+        skip: (query.page - 1) * query.limit,
+        take: query.limit,
+        select: {
+          id: true, patientId: true, serviceId: true, branchId: true, appointmentDate: true, startAt: true, endAt: true, status: true, notes: true,
+          patient: { select: { patientNumber: true, firstName: true, lastName: true } },
+          service: { select: { name: true, department: { select: { name: true } } } },
+        },
+      }),
+      this.prisma.appointment.count({ where }),
+    ]);
+    
+    return { data, meta: { page: query.page, limit: query.limit, total, totalPages: Math.ceil(total / query.limit) } };
+  }
+
   async confirm(tenant: Tenant, branchId: string, appointmentId: string, auditContext?: AuditContext) {
     await this.authorizeBranch(tenant, branchId);
     const existing = await this.prisma.appointment.findFirst({ where: { id: appointmentId, branchId, branch: { organizationId: tenant.organizationId } } });

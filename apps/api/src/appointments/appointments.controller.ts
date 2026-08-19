@@ -35,6 +35,14 @@ export class AppointmentsController {
     return this.appointmentsService.availability(this.requireTenant(tenant), branchId, serviceId, date);
   }
 
+  @Get()
+  @Roles(Role.ORG_ADMIN, Role.BRANCH_ADMIN, Role.RECEPTIONIST)
+  list(@CurrentTenant() tenant: AuthenticatedRequest['tenant'], @Param('branchId') branchId: string, @Query('page') page?: string, @Query('limit') limit?: string, @Query('status') status?: string, @Query('search') search?: string) {
+    const pageNumber = page ? parseInt(page, 10) : 1;
+    const limitNumber = limit ? parseInt(limit, 10) : 20;
+    return this.appointmentsService.list(this.requireTenant(tenant), branchId, { page: pageNumber, limit: limitNumber, status, search });
+  }
+
   @Post(':appointmentId/check-in')
   @Roles(Role.ORG_ADMIN, Role.BRANCH_ADMIN, Role.RECEPTIONIST)
   checkIn(@CurrentTenant() tenant: AuthenticatedRequest['tenant'], @CurrentUser() user: { userId: string }, @Req() request: AuthenticatedRequest, @Param('branchId') branchId: string, @Param('appointmentId') appointmentId: string) {
