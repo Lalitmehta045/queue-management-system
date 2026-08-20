@@ -27,7 +27,7 @@ export class TasksService {
       });
 
       for (const branch of branches) {
-        const timezone = branch.organization.timezone || 'UTC';
+        const timezone = branch.organization.timezone || process.env.TOKEN_TIME_ZONE || 'UTC';
         
         // Use Intl to format the date in the branch's timezone
         const formatterHour = new Intl.DateTimeFormat('en-US', {
