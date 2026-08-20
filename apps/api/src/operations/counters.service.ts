@@ -32,7 +32,7 @@ export class CountersService {
         await this.entitlements.enforceLimit(tenant.organizationId, 'maxCounters', currentCount, 1, tx);
 
         return tx.counter.create({
-          data: { branchId, name: dto.name.trim(), code: dto.code.trim() },
+          data: { branchId, name: dto.name.trim(), code: dto.code.trim(), tokenType: dto.tokenType ?? 'NORMAL' },
           select: this.counterSelect,
         });
       });
@@ -88,6 +88,7 @@ export class CountersService {
         data: {
           ...(dto.name === undefined ? {} : { name: dto.name.trim() }),
           ...(dto.code === undefined ? {} : { code: dto.code.trim() }),
+          ...(dto.tokenType === undefined ? {} : { tokenType: dto.tokenType }),
         },
         select: this.counterSelect,
       });
@@ -230,6 +231,7 @@ export class CountersService {
     branchId: true,
     name: true,
     code: true,
+    tokenType: true,
     status: true,
     createdAt: true,
     updatedAt: true,

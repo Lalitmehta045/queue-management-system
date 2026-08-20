@@ -268,33 +268,39 @@ export class TokensService {
 
           const assignments = await this.queueAllocation.allocateWaitingTokensBulk(tx, branchId, quantity, tokenType);
 
-          const createdTokens = [];
-          for (let i = 0; i < quantity; i++) {
-            const qe = await tx.queueEntry.create({
-              data: {
-                patientId: patient?.id ?? null,
-                serviceId: service.id,
-                activeEntryKey: null, // Left null for bulk tokens to avoid unique constraint if patientId is provided
-                priority,
-                priorityWeight,
-              },
-            });
+          const queueEntriesData = Array.from({ length: quantity }, () => ({
+            patientId: patient?.id ?? null,
+            serviceId: service.id,
+            activeEntryKey: null,
+            priority,
+            priorityWeight,
+          }));
 
-            const token = await tx.token.create({
-              data: {
-                queueEntryId: qe.id,
-                sequenceId: sequence.id,
-                sequenceNumber: sequenceNumber + i,
-                displayNumber: this.displayNumber(sequenceNumber + i, tokenType),
-                businessDate: normalizedBusinessDate,
-                counterId: assignments[i] ?? null,
-                type: tokenType,
-                specialCategory,
-              },
-              select: this.tokenSelect,
-            });
-            createdTokens.push(token);
-          }
+          // Create all queue entries in one batch (if Prisma version is 5.11+, createManyAndReturn works. Otherwise createMany + findMany)
+          // To be safe across versions, we will use createManyAndReturn since Prisma 6.x is used
+          const createdQueueEntries = await tx.queueEntry.createManyAndReturn({
+            data: queueEntriesData,
+            select: { id: true }
+          });
+
+          const tokensData = createdQueueEntries.map((qe, i) => ({
+            queueEntryId: qe.id,
+            sequenceId: sequence.id,
+            sequenceNumber: sequenceNumber + i,
+            displayNumber: this.displayNumber(sequenceNumber + i, tokenType),
+            businessDate: normalizedBusinessDate,
+            counterId: assignments[i] ?? null,
+            type: tokenType,
+            specialCategory,
+          }));
+
+          await tx.token.createMany({ data: tokensData });
+
+          const createdTokens = await tx.token.findMany({
+            where: { queueEntryId: { in: createdQueueEntries.map(qe => qe.id) } },
+            select: this.tokenSelect,
+            orderBy: { sequenceNumber: 'asc' },
+          });
           return createdTokens;
         });
 
