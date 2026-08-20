@@ -128,6 +128,8 @@ export class TokensService {
           const claimed = await tx.tokenSequence.updateMany({ where: { id: sequence.id, nextNumber: sequenceNumber }, data: { nextNumber: { increment: 1 } } });
           if (claimed.count !== 1) throw new RetryableTokenGenerationError('Token sequence contention');
 
+          const targetCounterId = await this.queueAllocation.allocateWaitingToken(tx, branchId, tokenType, sequenceNumber);
+
           const token = await tx.token.create({
             data: {
               queueEntryId: queueEntry.id,
@@ -135,7 +137,7 @@ export class TokensService {
               sequenceNumber,
               displayNumber: this.displayNumber(sequenceNumber, tokenType),
               businessDate: normalizedBusinessDate,
-              counterId: null,
+              counterId: targetCounterId,
               type: tokenType,
               specialCategory,
             },
@@ -279,16 +281,30 @@ export class TokensService {
             select: { id: true }
           });
 
-          const tokensData = createdQueueEntries.map((qe, i) => ({
-            queueEntryId: qe.id,
-            sequenceId: sequence.id,
-            sequenceNumber: sequenceNumber + i,
-            displayNumber: this.displayNumber(sequenceNumber + i, tokenType),
-            businessDate: normalizedBusinessDate,
-            counterId: null,
-            type: tokenType,
-            specialCategory,
-          }));
+          const activeCounters = await tx.counter.findMany({
+            where: { branchId, status: 'ACTIVE', tokenType },
+            orderBy: { code: 'asc' },
+          });
+          
+
+          const tokensData = createdQueueEntries.map((qe, i) => {
+            let counterId = null;
+            if (activeCounters.length > 0) {
+              const currentSeq = sequenceNumber + i;
+              const index = (currentSeq - 1) % activeCounters.length;
+              counterId = activeCounters[index]!.id;
+            }
+            return {
+              queueEntryId: qe.id,
+              sequenceId: sequence.id,
+              sequenceNumber: sequenceNumber + i,
+              displayNumber: this.displayNumber(sequenceNumber + i, tokenType),
+              businessDate: normalizedBusinessDate,
+              counterId,
+              type: tokenType,
+              specialCategory,
+            };
+          });
 
           await tx.token.createMany({ data: tokensData });
 
