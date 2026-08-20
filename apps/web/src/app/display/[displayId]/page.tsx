@@ -131,12 +131,28 @@ export default function PublicDisplayPage({ params }: { params: Promise<{ displa
   useEffect(() => {
     if (!displayId) return;
     let cancelled = false;
+
+    // Fetch initial snapshot immediately via HTTP to bypass potential SSE buffering
+    async function fetchInitial() {
+      try {
+        const response = await fetch(`/api/public/displays/${encodeURIComponent(displayId)}`, { cache: 'no-store' });
+        if (!response.ok) return;
+        const next = await response.json() as DisplaySnapshot;
+        if (!cancelled && !snapshotRef.current) {
+          snapshotRef.current = next;
+          setSnapshot(next);
+          setState('ready');
+        }
+      } catch (e) {
+        console.error('Failed to fetch initial snapshot', e);
+      }
+    }
+    void fetchInitial();
+
     const source = new EventSource(`/api/public/displays/${encodeURIComponent(displayId)}/events`);
 
     const handleSnapshot = (eventType: (typeof displayEventTypes)[number]) => (event: MessageEvent<string>) => {
       const next = JSON.parse(event.data) as DisplaySnapshot;
-      console.log('--- SSE PAYLOAD RECEIVED ---', eventType);
-      console.log(JSON.stringify(next, null, 2));
       if (cancelled) return;
 
       setSnapshot((previous) => {

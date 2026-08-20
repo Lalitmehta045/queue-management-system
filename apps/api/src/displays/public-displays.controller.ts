@@ -1,5 +1,5 @@
-import { Controller, Get, Param, Req, Sse } from '@nestjs/common';
-import { Request } from 'express';
+import { Controller, Get, Param, Req, Res, Sse } from '@nestjs/common';
+import { Request, Response } from 'express';
 import { DisplaysService } from './displays.service';
 import { Throttle } from '@nestjs/throttler';
 
@@ -15,7 +15,9 @@ export class PublicDisplaysController {
 
   @Sse(':publicId/events')
   @Throttle({ default: { limit: 100, ttl: 60000 } })
-  async events(@Param('publicId') publicId: string, @Req() request: Request) {
+  async events(@Param('publicId') publicId: string, @Req() request: Request, @Res({ passthrough: true }) res: Response) {
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
     return this.displaysService.streamPublicEvents(publicId, request.ip);
   }
 }
