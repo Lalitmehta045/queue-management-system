@@ -33,12 +33,15 @@ export class TokensService {
     private readonly queueAllocation: QueueAllocationService,
   ) {}
 
-  async generate(tenant: Tenant, branchId: string, queueEntryId: string, dtoOrAuditContext?: GenerateTokenDto | AuditContext, auditContextOrUndefined?: AuditContext) {
-    const isDto = dtoOrAuditContext && !('ipAddress' in dtoOrAuditContext || 'userAgent' in dtoOrAuditContext);
-    const dto = (isDto ? dtoOrAuditContext : undefined) as GenerateTokenDto | undefined;
-    const auditContext = (isDto ? auditContextOrUndefined : dtoOrAuditContext) as AuditContext | undefined;
-    
+  async generate(
+    tenant: Tenant,
+    branchId: string,
+    queueEntryId: string,
+    dto?: GenerateTokenDto,
+    auditContext?: AuditContext,
+  ) {
     const activeDate = await this.getActiveBusinessDate(branchId);
+    console.log('[DEBUG] TokensService.generate payload:', { dto, auditContext, tokenType: dto?.type });
     return this.generateForBusinessDate(tenant, branchId, queueEntryId, activeDate, dto, auditContext);
   }
 
@@ -49,6 +52,8 @@ export class TokensService {
 
     const tokenType = dto?.type ?? 'NORMAL';
     const specialCategory = dto?.specialCategory ?? null;
+
+    console.log('[DEBUG] TokensService.generateForBusinessDate tokenType resolved:', tokenType);
 
     if (tokenType === 'SPECIAL' && !specialCategory) {
       throw new BadRequestException('Special category is required for SPECIAL tokens');
@@ -123,7 +128,7 @@ export class TokensService {
           const claimed = await tx.tokenSequence.updateMany({ where: { id: sequence.id, nextNumber: sequenceNumber }, data: { nextNumber: { increment: 1 } } });
           if (claimed.count !== 1) throw new RetryableTokenGenerationError('Token sequence contention');
 
-          const counterId = await this.queueAllocation.allocateWaitingToken(tx, branchId);
+          const counterId = await this.queueAllocation.allocateWaitingToken(tx, branchId, tokenType);
 
           const token = await tx.token.create({
             data: {
@@ -261,7 +266,7 @@ export class TokensService {
           });
           if (claimed.count !== 1) throw new RetryableTokenGenerationError('Token sequence contention');
 
-          const assignments = await this.queueAllocation.allocateWaitingTokensBulk(tx, branchId, quantity);
+          const assignments = await this.queueAllocation.allocateWaitingTokensBulk(tx, branchId, quantity, tokenType);
 
           const createdTokens = [];
           for (let i = 0; i < quantity; i++) {
@@ -327,6 +332,7 @@ export class TokensService {
           }
           throw new ConflictException('Token generation is busy; please retry');
         }
+        this.logger.error('Failed to generate bulk tokens', error instanceof Error ? error.stack : error);
         throw error;
       }
     }

@@ -137,6 +137,7 @@ export type DisplaySnapshot = {
     name: string;
     code: string;
     counter: string;
+    tokenType: 'NORMAL' | 'SPECIAL';
     now: PublicToken | null;
     next: PublicToken | null;
     waitingTokens: PublicToken[];

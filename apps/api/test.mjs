@@ -1,17 +1,23 @@
-import { PrismaClient } from '@prisma/client';
-const prisma = new PrismaClient();
-async function main() {
-  const branch = await prisma.branch.findFirst();
-  const queueEntry = await prisma.queueEntry.findFirst({ where: { status: 'WAITING' }, include: { service: true } });
-  if (!queueEntry) { console.log('No waiting queue entry found'); return; }
-  console.log('Found queue entry:', queueEntry.id);
+const http = require('http');
+
+async function test() {
+  const { PrismaClient } = require('@prisma/client');
+  const prisma = new PrismaClient();
+  const user = await prisma.user.findFirst({ where: { email: 'admin@system.local' }});
   
-  const res = await fetch(`http://localhost:4000/branches/${branch.id}/queue-entries/${queueEntry.id}/token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ type: 'SPECIAL', specialCategory: 'SENIOR_CITIZEN' })
+  if (!user) {
+     console.log('No user found'); return;
+  }
+  
+  const branch = await prisma.branch.findFirst();
+  const service = await prisma.service.findFirst({ where: { department: { branchId: branch.id } } });
+
+  // 1. Create a queue entry
+  const queueEntry = await prisma.queueEntry.create({
+    data: { serviceId: service.id, priority: 'SENIOR_CITIZEN', priorityWeight: 60 }
   });
-  console.log(res.status);
-  console.log(await res.text());
+  
+  // Oh, wait, I can just use Prisma to do the call, but I want to test the HTTP API to see if the Controller parsing works.
+  // We don't easily have a valid JWT. We can just use Prisma to create an API token if the system supports it, or use `auth/login`.
 }
-main().catch(console.error).finally(() => prisma.$disconnect());
+test();

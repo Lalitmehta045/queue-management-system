@@ -10,7 +10,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { getBusinessDate } from '../utils/date.util';
 
 type Tenant = NonNullable<AuthenticatedRequest['tenant']>;
-type AuthorizedCounter = { id: string; branchId: string; status: CounterStatus };
+type AuthorizedCounter = { id: string; branchId: string; status: CounterStatus; tokenType: import('@prisma/client').TokenType };
 type TokenAuditRow = {
   id: string;
   displayNumber: string;
@@ -47,16 +47,16 @@ export class QueueCallingService {
       
       const starvationThreshold = new Date(Date.now() - 60 * 60 * 1000); // 1 hour
       let candidates = await tx.token.findMany({
-        where: { ...this.waitingScope(tenant.organizationId, branchId, counter.id, businessDate), issuedAt: { lt: starvationThreshold } },
-        orderBy: [{ businessDate: 'asc' }, { sequenceNumber: 'asc' }, { id: 'asc' }],
+        where: { ...this.waitingScope(tenant.organizationId, branchId, counter.id, businessDate, counter.tokenType), issuedAt: { lt: starvationThreshold } },
+        orderBy: [{ sequenceNumber: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
         take: 5,
         select: { id: true },
       });
 
       if (candidates.length === 0) {
         candidates = await tx.token.findMany({
-          where: this.waitingScope(tenant.organizationId, branchId, counter.id, businessDate),
-          orderBy: [{ queueEntry: { priorityWeight: 'desc' } }, { businessDate: 'asc' }, { sequenceNumber: 'asc' }, { id: 'asc' }],
+          where: this.waitingScope(tenant.organizationId, branchId, counter.id, businessDate, counter.tokenType),
+          orderBy: [{ queueEntry: { priorityWeight: 'desc' } }, { sequenceNumber: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
           take: 20,
           select: { id: true },
         });
@@ -80,8 +80,9 @@ export class QueueCallingService {
   async callSpecific(tenant: Tenant, userId: string, branchId: string, counterId: string, tokenId: string, auditContext?: AuditContext) {
     const counter = await this.authorizeCounter(tenant, userId, branchId, counterId);
     if (!isUUID(tokenId)) throw new NotFoundException('Token not found');
-    const scopedToken = await this.prisma.token.findFirst({ where: { id: tokenId, queueEntry: { service: { department: { branchId, branch: { organizationId: tenant.organizationId } } } } }, select: { id: true } });
+    const scopedToken = await this.prisma.token.findFirst({ where: { id: tokenId, queueEntry: { service: { department: { branchId, branch: { organizationId: tenant.organizationId } } } } }, select: { id: true, type: true } });
     if (!scopedToken) throw new NotFoundException('Token not found');
+    if (scopedToken.type !== counter.tokenType) throw new ConflictException(`Cannot call a ${scopedToken.type} token on a ${counter.tokenType} counter`);
     try {
       const token = await this.prisma.$transaction(async (tx) => {
         const lockedCounters = await tx.$queryRaw<{ id: string }[]>`
@@ -97,7 +98,7 @@ export class QueueCallingService {
         await this.ensureCounterAvailable(tx, tenant.organizationId, branchId, counter.id);
         const businessDate = await this.getActiveBusinessDate(branchId);
         const claimed = await tx.token.updateMany({
-          where: { id: tokenId, ...this.waitingScope(tenant.organizationId, branchId, counter.id, businessDate) },
+          where: { id: tokenId, ...this.waitingScope(tenant.organizationId, branchId, counter.id, businessDate, counter.tokenType) },
           data: { status: TokenStatus.CALLED, operatorId: userId, calledAt: new Date() },
         });
         if (claimed.count !== 1) throw new ConflictException('Token is not available for calling');
@@ -121,8 +122,8 @@ export class QueueCallingService {
     const counter = await this.authorizeCounter(tenant, userId, branchId, counterId);
     const businessDate = await this.getActiveBusinessDate(branchId);
     const data = await this.prisma.token.findMany({
-      where: this.waitingScope(tenant.organizationId, counter.branchId, counter.id, businessDate),
-      orderBy: [{ queueEntry: { priorityWeight: 'desc' } }, { businessDate: 'asc' }, { sequenceNumber: 'asc' }, { id: 'asc' }],
+      where: this.waitingScope(tenant.organizationId, counter.branchId, counter.id, businessDate, counter.tokenType),
+      orderBy: [{ queueEntry: { priorityWeight: 'desc' } }, { sequenceNumber: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
       select: this.tokenSelect,
     });
     return { data, meta: { total: data.length, counterId: counter.id, branchId: counter.branchId } };
@@ -195,6 +196,7 @@ export class QueueCallingService {
       where: {
         status: TokenStatus.SKIPPED,
         counterId: counter.id,
+        type: counter.tokenType,
         ...(businessDate ? { businessDate } : {}),
         queueEntry: { service: { department: { branchId: counter.branchId, branch: { organizationId: tenant.organizationId } } } },
       },
@@ -214,10 +216,11 @@ export class QueueCallingService {
         counterId: counter.id,
         queueEntry: { service: { department: { branchId: counter.branchId, branch: { organizationId: tenant.organizationId } } } },
       },
-      select: { id: true, status: true },
+      select: { id: true, status: true, type: true },
     });
     if (!scopedToken) throw new NotFoundException('Token not found');
     if (scopedToken.status !== TokenStatus.SKIPPED) throw new ConflictException('Token is not in SKIPPED status');
+    if (scopedToken.type !== counter.tokenType) throw new ConflictException(`Cannot recall a ${scopedToken.type} token to a ${counter.tokenType} counter`);
 
     const updated = await this.prisma.token.updateMany({
       where: { id: tokenId, counterId: counter.id, status: TokenStatus.SKIPPED },
@@ -254,7 +257,7 @@ export class QueueCallingService {
   private async authorizeCounter(tenant: Tenant, userId: string, branchId: string, counterId: string): Promise<AuthorizedCounter> {
     if (!isUUID(branchId) || !isUUID(counterId)) throw new NotFoundException('Counter not found');
     if (tenant.role === Role.BRANCH_ADMIN && tenant.branchId !== branchId) throw new ForbiddenException('You do not have access to this branch');
-    const counter = await this.prisma.counter.findFirst({ where: { id: counterId, branchId, branch: { organizationId: tenant.organizationId } }, select: { id: true, branchId: true, status: true } });
+    const counter = await this.prisma.counter.findFirst({ where: { id: counterId, branchId, branch: { organizationId: tenant.organizationId } }, select: { id: true, branchId: true, status: true, tokenType: true } });
     if (!counter) throw new NotFoundException('Counter not found');
     if (counter.status !== CounterStatus.ACTIVE) throw new ConflictException('Counter is inactive');
     if (tenant.role === Role.COUNTER_OPERATOR) {
@@ -269,7 +272,7 @@ export class QueueCallingService {
     if (current) throw new ConflictException('Counter already has an active token');
   }
 
-  private waitingScope(organizationId: string, branchId: string, counterId?: string, businessDate?: Date | null): Prisma.TokenWhereInput {
+  private waitingScope(organizationId: string, branchId: string, counterId?: string, businessDate?: Date | null, tokenType?: string): Prisma.TokenWhereInput {
     const scope: Prisma.TokenWhereInput = {
       status: TokenStatus.WAITING,
       queueEntry: {
@@ -277,6 +280,9 @@ export class QueueCallingService {
         service: { department: { branchId, branch: { organizationId } } },
       },
     };
+    if (tokenType) {
+      scope.type = tokenType as any;
+    }
     if (counterId) {
       scope.counterId = counterId;
     }

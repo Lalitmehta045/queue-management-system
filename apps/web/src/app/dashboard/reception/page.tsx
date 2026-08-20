@@ -406,7 +406,7 @@ export default function ReceptionPage() {
               {tokenType === 'SPECIAL' && (
                 <div className="space-y-3">
                   <label className="block text-sm font-bold text-slate-700 uppercase tracking-wider">Special Category</label>
-                  <Select value={specialCategory} onChange={(e) => setSpecialCategory(e.target.value as any)} className="w-full text-lg h-12 shadow-sm">
+                  <Select value={specialCategory} onChange={(e) => setSpecialCategory(e.target.value as "SENIOR_CITIZEN" | "DISABLED")} className="w-full text-lg h-12 shadow-sm">
                     <option value="SENIOR_CITIZEN">Senior Citizen</option>
                     <option value="DISABLED">Disabled / PwD</option>
                   </Select>

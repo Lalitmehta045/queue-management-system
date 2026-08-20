@@ -1,4 +1,4 @@
-import { ForbiddenException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Inject, Injectable, Logger, NotFoundException, forwardRef } from '@nestjs/common';
 import {
   NotificationChannel,
   NotificationEventType,
@@ -29,8 +29,8 @@ export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name);
 
   constructor(
-    private readonly prisma: PrismaService,
-    private readonly settingsService: NotificationSettingsService,
+    @Inject(forwardRef(() => PrismaService)) private readonly prisma: PrismaService,
+    @Inject(forwardRef(() => NotificationSettingsService)) private readonly settingsService: NotificationSettingsService,
     @Inject(NotificationProviderToken) private readonly provider: NotificationProvider,
   ) {}
 

@@ -1,7 +1,7 @@
 const http = require('http');
 
 const loginData = JSON.stringify({
-  email: 'admin@example.com',
+  email: 'admin2@example.com',
   password: 'Admin@1234'
 });
 
@@ -23,9 +23,9 @@ req.write(loginData);
 req.end();
 
 function fetchBranches(cookie) {
-  const orgId = "fb070282-4a17-4ae9-9537-e3a1098d249f";
-  const branchId = "cd9d7d0e-a5ff-47fc-bae1-9cb428c7ffcb";
-  const serviceId = "59bb9c83-2c00-42ba-bd52-7bb7d1dc30ed";
+  const orgId = "e99d4352-7f15-41ee-b88e-938046117c4c";
+  const branchId = "0b3ed104-c610-419f-98b4-f2729d644d10";
+  const serviceId = "04564613-cac6-4854-b076-bd83dfd5670a";
 
   const tokenData = JSON.stringify({
     serviceId: serviceId,

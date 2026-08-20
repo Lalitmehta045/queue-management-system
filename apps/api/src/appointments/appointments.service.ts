@@ -260,7 +260,7 @@ export class AppointmentsService {
     }
     if (!queueEntry) throw new ConflictException('Could not create or find queue entry for appointment check-in');
     // Generate token (tokens service is idempotent per queueEntry)
-    const token = await this.tokens.generate(tenant, branchId, queueEntry.id, auditContext);
+    const token = await this.tokens.generate(tenant, branchId, queueEntry.id, undefined, auditContext);
     // Notification (fire-and-forget)
     void this.notifications.onAppointmentCheckedIn(branchId, appointmentId).catch(() => undefined);
     if (auditContext) {

@@ -3,8 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
 }
 
@@ -341,6 +341,7 @@ model Counter {
   name        String
   code        String
   status      CounterStatus       @default(ACTIVE)
+  tokenType   TokenType           @default(NORMAL)
   branch      Branch              @relation(fields: [branchId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   assignments CounterAssignment[]
   tokens      Token[]
@@ -436,32 +437,32 @@ enum SpecialCategory {
 }
 
 model Token {
-  id             String         @id @default(uuid()) @db.Uuid
-  queueEntryId   String         @unique @db.Uuid
-  sequenceId     String         @db.Uuid
-  counterId      String?        @db.Uuid
-  operatorId     String?        @db.Uuid
-  sequenceNumber Int
-  displayNumber  String
-  businessDate   DateTime       @db.Date
-  status         TokenStatus    @default(WAITING)
-  type           TokenType      @default(NORMAL)
+  id              String           @id @default(uuid()) @db.Uuid
+  queueEntryId    String           @unique @db.Uuid
+  sequenceId      String           @db.Uuid
+  counterId       String?          @db.Uuid
+  operatorId      String?          @db.Uuid
+  sequenceNumber  Int
+  displayNumber   String
+  businessDate    DateTime         @db.Date
+  status          TokenStatus      @default(WAITING)
+  type            TokenType        @default(NORMAL)
   specialCategory SpecialCategory?
-  issuedAt       DateTime       @default(now())
-  calledAt       DateTime?
-  servingAt      DateTime?
-  completedAt    DateTime?
-  skippedAt      DateTime?
-  recalledAt     DateTime?
-  recallCount    Int            @default(0)
-  queueEntry     QueueEntry     @relation(fields: [queueEntryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  sequence       TokenSequence  @relation(fields: [sequenceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  counter        Counter?       @relation(fields: [counterId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  operator       User?          @relation(fields: [operatorId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  notifications  Notification[]
-  printJobs      PrintJob[]
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+  issuedAt        DateTime         @default(now())
+  calledAt        DateTime?
+  servingAt       DateTime?
+  completedAt     DateTime?
+  skippedAt       DateTime?
+  recalledAt      DateTime?
+  recallCount     Int              @default(0)
+  queueEntry      QueueEntry       @relation(fields: [queueEntryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  sequence        TokenSequence    @relation(fields: [sequenceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  counter         Counter?         @relation(fields: [counterId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  operator        User?            @relation(fields: [operatorId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  notifications   Notification[]
+  printJobs       PrintJob[]
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
 
   @@index([counterId, status])
   @@index([operatorId, status])

@@ -1,4 +1,5 @@
-import { IsOptional, IsString, Length } from 'class-validator';
+import { IsEnum, IsOptional, IsString, Length } from 'class-validator';
+import { TokenType } from '@prisma/client';
 
 export class UpdateCounterDto {
   @IsOptional()
@@ -10,4 +11,8 @@ export class UpdateCounterDto {
   @IsString()
   @Length(1, 40)
   code?: string;
+
+  @IsOptional()
+  @IsEnum(TokenType)
+  tokenType?: TokenType;
 }

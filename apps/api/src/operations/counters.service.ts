@@ -9,6 +9,7 @@ import { CreateCounterDto } from './dto/create-counter.dto';
 import { ListResourcesDto } from './dto/list-resources.dto';
 import { UpdateCounterDto } from './dto/update-counter.dto';
 import { QueueAllocationService } from '../queue-calling/queue-allocation.service';
+import { DisplayEventsService } from '../displays/display-events.service';
 
 type Tenant = NonNullable<AuthenticatedRequest['tenant']>;
 
@@ -19,6 +20,7 @@ export class CountersService {
     private readonly audit: AuditService,
     private readonly entitlements: EntitlementsService,
     private readonly queueAllocation: QueueAllocationService,
+    private readonly displayEvents: DisplayEventsService,
   ) {}
 
   async create(tenant: Tenant, branchId: string, dto: CreateCounterDto, auditContext?: AuditContext) {
@@ -105,6 +107,9 @@ export class CountersService {
       return c;
     });
     if (auditContext) await this.audit.record({ ...auditContext, organizationId: tenant.organizationId, branchId, action: status === CounterStatus.ACTIVE ? AuditAction.COUNTER_ACTIVATED : AuditAction.COUNTER_DEACTIVATED, resourceType: AuditResourceType.COUNTER, resourceId: counter.id, metadata: { name: counter.name, code: counter.code, status: counter.status } });
+    
+    this.displayEvents.publish(branchId, 'QUEUE_UPDATED');
+    
     return counter;
   }
 

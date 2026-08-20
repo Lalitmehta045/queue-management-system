@@ -237,11 +237,85 @@ export default function PublicDisplayPage({ params }: { params: Promise<{ displa
   const formattedDate = currentTime?.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) ?? '';
   const formattedTime = currentTime?.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }) ?? '';
 
+  const normalCounters = counters.filter(c => c.tokenType !== 'SPECIAL');
+  const specialCounters = counters.filter(c => c.tokenType === 'SPECIAL');
+  const allVisibleCounters = [...normalCounters, ...specialCounters];
+
   const enableAudio = () => {
     if (!announcementSettings.enabled && !voiceUnavailable) {
       setAnnouncementSettings(s => ({ ...s, enabled: true }));
       saveAnnouncementSettings({ ...announcementSettings, enabled: true });
     }
+  };
+
+  const renderCounterGrid = (gridCounters: typeof counters, title: string, titleGradient: string) => {
+    if (gridCounters.length === 0) return null;
+    return (
+      <div className="flex-1 min-h-0 flex flex-col mb-4 last:mb-0">
+        <h2 className={`text-[clamp(0.8rem,1.5vh,1.2rem)] font-black text-transparent bg-clip-text bg-gradient-to-r ${titleGradient} uppercase tracking-[0.2em] px-2 mb-2`}>
+          {title}
+        </h2>
+        <div 
+          className="grid w-full gap-2 lg:gap-3 min-h-0 auto-rows-fr max-md:grid-cols-2 md:grid-cols-[var(--cols)]"
+          style={{ '--cols': `repeat(${gridCounters.length || 1}, minmax(0, 1fr))` } as React.CSSProperties}
+        >
+          {gridCounters.map((c, idx) => (
+            <div key={c.id || idx} className="@container flex flex-col bg-white rounded-2xl lg:rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-100 overflow-hidden min-h-0 transform transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_8px_40px_rgb(79,70,229,0.12)]">
+              <div className="flex-shrink-0 py-1 flex flex-col items-center justify-center bg-gradient-to-r from-slate-50 to-indigo-50/30 border-b border-indigo-50 relative overflow-hidden">
+                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-400 via-indigo-500 to-purple-500"></div>
+                <h3 className="font-bold text-slate-500 text-[clamp(0.5rem,1vh,0.65rem)] uppercase tracking-[0.2em]">{c.name || 'Counter'}</h3>
+                <span className="font-black text-slate-800 text-[clamp(0.9rem,1.5vh,1.1rem)] uppercase tracking-widest mt-0.5">{c.code || c.counter}</span>
+                {c.tokenType === 'SPECIAL' && (
+                  <span className="bg-purple-100 text-purple-700 text-[clamp(0.45rem,0.8vh,0.6rem)] px-2 py-0.5 mt-0.5 rounded-sm uppercase tracking-widest font-black border border-purple-200 shadow-sm z-10">
+                    Special
+                  </span>
+                )}
+              </div>
+              <div className="flex-shrink-0 py-1 2xl:py-1.5 flex flex-col items-center justify-center relative border-b border-slate-50">
+                <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-blue-50/50 via-transparent to-transparent opacity-50"></div>
+                <p className="font-bold text-blue-600 text-[clamp(0.5rem,1vh,0.65rem)] tracking-[0.2em] uppercase mb-0.5 z-10 bg-blue-50 px-3 py-0.5 rounded-full border border-blue-100">Now Serving</p>
+                <p className="font-black text-[clamp(2rem,6vh,3.5rem)] leading-none text-transparent bg-clip-text bg-gradient-to-br from-slate-800 to-slate-600 drop-shadow-sm z-10">
+                  {c.now?.tokenLabel || '—'}
+                </p>
+              </div>
+              <div className="flex-shrink-0 py-1 2xl:py-1.5 flex flex-col items-center justify-center bg-slate-50/80 border-y border-slate-100">
+                <p className="font-bold text-purple-600 text-[clamp(0.5rem,1vh,0.65rem)] tracking-[0.2em] uppercase mb-0.5">Next</p>
+                <p className="font-black text-[clamp(1.5rem,4vh,2.5rem)] leading-none text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-pink-500">
+                  {c.next?.tokenLabel || '—'}
+                </p>
+              </div>
+              <div className="flex-1 flex flex-col bg-white min-h-0 overflow-hidden">
+                <div className="py-1 bg-slate-50/50 border-b border-slate-100 shrink-0 flex justify-center items-center gap-2">
+                  <div className="w-1.5 h-1.5 rounded-full bg-slate-300"></div>
+                  <p className="text-[clamp(0.5rem,1vh,0.65rem)] font-bold text-slate-500 tracking-[0.2em] uppercase">Waiting Queue</p>
+                  <div className="w-1.5 h-1.5 rounded-full bg-slate-300"></div>
+                </div>
+                <div className="w-full flex-1 min-h-0 p-1 flex flex-col items-center overflow-hidden">
+                  {c.waitingTokens && c.waitingTokens.length > 0 ? (
+                    <AutoScrollList>
+                      {c.waitingTokens.map((wt, i) => (
+                         <div key={i} className="text-[clamp(0.8rem,1.8vh,1rem)] font-bold text-slate-700 bg-slate-50 w-full text-center py-0.5 2xl:py-1 rounded-lg border border-slate-100 shadow-sm">
+                          {wt.tokenLabel}
+                        </div>
+                      ))}
+                      <div className="mt-1 w-full">
+                        <div className="text-[clamp(0.6rem,1.2vh,0.75rem)] font-bold text-white uppercase tracking-widest bg-gradient-to-r from-slate-700 to-slate-600 py-1 2xl:py-1.5 rounded-md text-center shadow-md">
+                          {c.waitingTokens.length} Waiting
+                        </div>
+                      </div>
+                    </AutoScrollList>
+                  ) : (
+                    <div className="flex-1 flex items-center justify-center text-slate-300 font-medium py-2 text-[clamp(0.6rem,1.2vh,0.75rem)] uppercase tracking-wider">
+                      No waiting tokens
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -339,64 +413,8 @@ export default function PublicDisplayPage({ params }: { params: Promise<{ displa
       </section>
 
       {/* COUNTER GRID */}
-      <section className="bg-transparent flex-1 min-h-0 overflow-hidden p-3 lg:p-4 flex flex-col">
-        <div className={`grid w-full h-full gap-3 lg:gap-4 min-h-0 ${
-          counters.length <= 2 ? 'grid-cols-2 grid-rows-1' :
-          counters.length === 3 ? 'grid-cols-3 grid-rows-1' :
-          counters.length === 4 ? 'grid-cols-4 grid-rows-1' :
-          counters.length <= 6 ? 'grid-cols-3 grid-rows-2' :
-          'grid-cols-4 grid-rows-2'
-        }`}>
-          {counters.map((c, idx) => (
-            <div key={c.id || idx} className="@container flex flex-col bg-white rounded-2xl lg:rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-100 overflow-hidden min-h-0 transform transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_8px_40px_rgb(79,70,229,0.12)]">
-              <div className="flex-shrink-0 py-1 flex flex-col items-center justify-center bg-gradient-to-r from-slate-50 to-indigo-50/30 border-b border-indigo-50 relative overflow-hidden">
-                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-400 via-indigo-500 to-purple-500"></div>
-                <h3 className="font-bold text-slate-500 text-[clamp(0.5rem,1vh,0.65rem)] uppercase tracking-[0.2em]">{c.name || 'Counter'}</h3>
-                <span className="font-black text-slate-800 text-[clamp(0.9rem,1.5vh,1.1rem)] uppercase tracking-widest mt-0.5">{c.code || c.counter}</span>
-              </div>
-              <div className="flex-shrink-0 py-1 2xl:py-1.5 flex flex-col items-center justify-center relative border-b border-slate-50">
-                <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-blue-50/50 via-transparent to-transparent opacity-50"></div>
-                <p className="font-bold text-blue-600 text-[clamp(0.5rem,1vh,0.65rem)] tracking-[0.2em] uppercase mb-0.5 z-10 bg-blue-50 px-3 py-0.5 rounded-full border border-blue-100">Now Serving</p>
-                <p className="font-black text-[clamp(2rem,6vh,3.5rem)] leading-none text-transparent bg-clip-text bg-gradient-to-br from-slate-800 to-slate-600 drop-shadow-sm z-10">
-                  {c.now?.tokenLabel || '—'}
-                </p>
-              </div>
-              <div className="flex-shrink-0 py-1 2xl:py-1.5 flex flex-col items-center justify-center bg-slate-50/80 border-y border-slate-100">
-                <p className="font-bold text-purple-600 text-[clamp(0.5rem,1vh,0.65rem)] tracking-[0.2em] uppercase mb-0.5">Next</p>
-                <p className="font-black text-[clamp(1.5rem,4vh,2.5rem)] leading-none text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-pink-500">
-                  {c.next?.tokenLabel || '—'}
-                </p>
-              </div>
-              <div className="flex-1 flex flex-col bg-white min-h-0 overflow-hidden">
-                <div className="py-1 bg-slate-50/50 border-b border-slate-100 shrink-0 flex justify-center items-center gap-2">
-                  <div className="w-1.5 h-1.5 rounded-full bg-slate-300"></div>
-                  <p className="text-[clamp(0.5rem,1vh,0.65rem)] font-bold text-slate-500 tracking-[0.2em] uppercase">Waiting Queue</p>
-                  <div className="w-1.5 h-1.5 rounded-full bg-slate-300"></div>
-                </div>
-                <div className="w-full flex-1 min-h-0 p-1 flex flex-col items-center overflow-hidden">
-                  {c.waitingTokens && c.waitingTokens.length > 0 ? (
-                    <AutoScrollList>
-                      {c.waitingTokens.map((wt, i) => (
-                         <div key={i} className="text-[clamp(0.8rem,1.8vh,1rem)] font-bold text-slate-700 bg-slate-50 w-full text-center py-0.5 2xl:py-1 rounded-lg border border-slate-100 shadow-sm">
-                          {wt.tokenLabel}
-                        </div>
-                      ))}
-                      <div className="mt-1 w-full">
-                        <div className="text-[clamp(0.6rem,1.2vh,0.75rem)] font-bold text-white uppercase tracking-widest bg-gradient-to-r from-slate-700 to-slate-600 py-1 2xl:py-1.5 rounded-md text-center shadow-md">
-                          {c.waitingTokens.length} Waiting
-                        </div>
-                      </div>
-                    </AutoScrollList>
-                  ) : (
-                    <div className="flex-1 flex items-center justify-center text-slate-300 font-medium py-2 text-[clamp(0.6rem,1.2vh,0.75rem)] uppercase tracking-wider">
-                      No waiting tokens
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
+      <section className="bg-transparent flex-1 min-h-0 overflow-y-auto p-3 lg:p-4 flex flex-col">
+        {renderCounterGrid(allVisibleCounters, 'Live Queue', 'from-blue-600 to-purple-600')}
       </section>
 
       {/* FOOTER & LEGEND */}

@@ -12,7 +12,7 @@ import { Select } from '../../../../../../components/ui/Select';
 import { Skeleton } from '../../../../../../components/ui/Skeleton';
 import { fetchWithAuth } from '../../../../../../lib/auth-client';
 
-type Counter = { id: string; name: string; code: string; status: 'ACTIVE' | 'INACTIVE' };
+type Counter = { id: string; name: string; code: string; status: 'ACTIVE' | 'INACTIVE', tokenType: 'NORMAL' | 'SPECIAL' };
 type Operator = { id: string; displayName: string; email: string };
 type Assigned = { id: string; user: Operator & { role: string | null; status: string | null } };
 type User = { memberships: { organization: { id: string } }[] };
@@ -28,6 +28,7 @@ export default function CountersPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
+  const [tokenType, setTokenType] = useState<'NORMAL' | 'SPECIAL'>('NORMAL');
   const [state, setState] = useState<'loading' | 'ready' | 'empty' | 'error' | 'forbidden'>('loading');
   const [message, setMessage] = useState('');
 
@@ -70,11 +71,12 @@ export default function CountersPage() {
   async function save(event: FormEvent) {
     event.preventDefault();
     const path = editingId ? `/api/branches/${branchId}/counters/${editingId}` : `/api/branches/${branchId}/counters`;
-    const response = await fetchWithAuth(path, { method: editingId ? 'PATCH' : 'POST', headers: { 'x-organization-id': organizationId }, body: JSON.stringify({ name, code }) });
+    const response = await fetchWithAuth(path, { method: editingId ? 'PATCH' : 'POST', headers: { 'x-organization-id': organizationId }, body: JSON.stringify({ name, code, tokenType }) });
     if (response.status === 409) { setMessage('A counter with that code already exists in this branch.'); return; }
     if (!response.ok) { setMessage('Unable to save counter.'); return; }
     setName('');
     setCode('');
+    setTokenType('NORMAL');
     setEditingId(null);
     setMessage('Counter saved.');
     await load(organizationId);
@@ -141,12 +143,16 @@ export default function CountersPage() {
             <CardTitle>{editingId ? 'Edit Counter' : 'Add Counter'}</CardTitle>
           </CardHeader>
           <CardContent>
-            <form onSubmit={save} className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <form onSubmit={save} className="grid grid-cols-1 gap-4 sm:grid-cols-4">
               <Input required minLength={2} maxLength={120} label="Name" value={name} onChange={(event) => setName(event.target.value)} />
               <Input required maxLength={40} label="Code" value={code} onChange={(event) => setCode(event.target.value)} />
+              <Select label="Type" value={tokenType} onChange={(e) => setTokenType(e.target.value as 'NORMAL' | 'SPECIAL')}>
+                <option value="NORMAL">Normal Queue</option>
+                <option value="SPECIAL">Special Queue</option>
+              </Select>
               <div className="flex items-end gap-2">
                 <Button type="submit">{editingId ? 'Update Counter' : 'Add Counter'}</Button>
-                {editingId && <Button type="button" variant="outline" onClick={() => { setEditingId(null); setName(''); setCode(''); }}>Cancel</Button>}
+                {editingId && <Button type="button" variant="outline" onClick={() => { setEditingId(null); setName(''); setCode(''); setTokenType('NORMAL'); }}>Cancel</Button>}
               </div>
             </form>
             {message && <p className="mt-4 text-sm font-semibold text-teal-700">{message}</p>}
@@ -167,6 +173,7 @@ export default function CountersPage() {
                         <div className="flex flex-wrap items-center gap-3">
                           <h2 className="text-lg font-bold text-slate-900">{counter.name}</h2>
                           <Badge variant={counter.status === 'ACTIVE' ? 'success' : 'warning'}>{counter.status}</Badge>
+                          <Badge variant={counter.tokenType === 'SPECIAL' ? 'danger' : 'info'}>{counter.tokenType || 'NORMAL'}</Badge>
                         </div>
                         <p className="mt-1 text-sm font-medium text-slate-500">{counter.code}</p>
                         <div className="mt-3 flex flex-wrap gap-2">
@@ -186,7 +193,7 @@ export default function CountersPage() {
                           {eligible.map((operator) => <option value={operator.id} key={operator.id}>{operator.displayName} ({operator.email})</option>)}
                         </Select>
                         <Button type="button" variant="secondary" disabled={counter.status !== 'ACTIVE' || !operatorByCounter[counter.id]} onClick={() => void assign(counter.id)}>Assign</Button>
-                        <Button type="button" variant="outline" onClick={() => { setEditingId(counter.id); setName(counter.name); setCode(counter.code); }}>Edit</Button>
+                        <Button type="button" variant="outline" onClick={() => { setEditingId(counter.id); setName(counter.name); setCode(counter.code); setTokenType(counter.tokenType || 'NORMAL'); }}>Edit</Button>
                         <Button type="button" variant={counter.status === 'ACTIVE' ? 'danger' : 'secondary'} onClick={() => void toggle(counter)}>{counter.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}</Button>
                       </div>
                     </div>

@@ -7,8 +7,10 @@ import { CountersService } from './counters.service';
 import { OperatorsController } from './operators.controller';
 import { QueueCallingModule } from '../queue-calling/queue-calling.module';
 
+import { DisplaysModule } from '../displays/displays.module';
+
 @Module({
-  imports: [QueueCallingModule],
+  imports: [QueueCallingModule, DisplaysModule],
   controllers: [DepartmentsController, ServicesController, CountersController, OperatorsController],
   providers: [OperationsService, CountersService],
 })

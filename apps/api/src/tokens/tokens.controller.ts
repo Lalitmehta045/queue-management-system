@@ -22,9 +22,9 @@ export class TokensController {
   @Throttle({ default: { limit: 1000, ttl: 60000 } })
   @Roles(Role.ORG_ADMIN, Role.BRANCH_ADMIN, Role.RECEPTIONIST)
   generate(@CurrentTenant() tenant: AuthenticatedRequest['tenant'], @CurrentUser() user: { userId: string }, @Req() request: AuthenticatedRequest, @Param('branchId') branchId: string, @Param('queueEntryId') queueEntryId: string, @Body() dto: GenerateTokenDto) {
-    void dto;
+    console.log('[DEBUG] TokensController.generate dto received:', dto, 'type of dto:', typeof dto, 'keys:', Object.keys(dto || {}));
     const requiredTenant = this.requireTenant(tenant);
-    return this.tokensService.generate(requiredTenant, branchId, queueEntryId, getAuditContext(requiredTenant, user, request));
+    return this.tokensService.generate(requiredTenant, branchId, queueEntryId, dto, getAuditContext(requiredTenant, user, request));
   }
 
   @Post('tokens/bulk')

@@ -75,6 +75,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
         `[${requestId}] Unhandled Exception on ${request.method} ${request.url}: ${exception instanceof Error ? exception.message : "Unknown error"}`,
         exception instanceof Error ? exception.stack : undefined
       );
+      require('fs').appendFileSync('error.log', `[${new Date().toISOString()}] ${request.url} ${exception instanceof Error ? exception.stack : exception}\n`);
     }
 
     response.status(statusCode).json({

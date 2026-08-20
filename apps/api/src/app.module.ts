@@ -31,6 +31,7 @@ import { TasksModule } from './tasks/tasks.module';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
+      envFilePath: '../../.env',
       validate: validateEnvironment
     }),
     LoggerModule.forRootAsync({

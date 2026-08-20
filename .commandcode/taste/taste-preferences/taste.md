@@ -1,0 +1,12 @@
+# Taste Preferences
+- Prefers the assistant to run commands freely without asking for permission each time — "allow all" mode. Explicitly grants blanket permission to execute any commands autonomously. Confidence: 0.85
+- Provides detailed, numbered requirements with concrete examples (e.g., "If 20 tokens and 2 counters: approximately 10 each"). Prefers explicit, unambiguous specifications over vague descriptions. Confidence: 0.8
+- Explicitly lists desired test cases when requesting tests, including edge cases like isolation, concurrency, and boundary conditions. Confidence: 0.8
+- Requires concurrency-safe, transactional/atomic operations for any logic that could race (e.g., concurrent operator logins). Prefers advisory locks or equivalent serialization mechanisms. Confidence: 0.7
+- Prefers proper, complete solutions over minimal fixes. Explicitly rejects band-aid approaches (e.g., "Do NOT simply call X"). Confidence: 0.7
+- Values comprehensive test coverage that validates distribution correctness, type isolation, and concurrency safety — not just happy-path behavior. Confidence: 0.7
+- Demands thorough root-cause investigation before any code changes — explicitly says "DO NOT assume the previous implementation is correct" and "Do not modify anything until you identify exactly why." Confidence: 0.8
+- Rejects symptom-hiding fixes — explicitly prohibits using frontend changes to mask backend bugs (e.g., "Do not solve backend allocation bugs with frontend filtering"). Confidence: 0.8
+- Wants real-world verification beyond automated tests — "Do not stop at 'tests pass'. Verify the actual database assignment after login with a real multi-counter scenario." Confidence: 0.7
+- Prefers structured diagnostic logging with explicit security constraints — specifies exact log tag formats (e.g., `[QUEUE_REBALANCE]`) and prohibits logging passwords, tokens, JWTs, or sensitive personal data. Confidence: 0.7
+- Expects a structured completion summary with labeled sections (ROOT CAUSE, EXACT FILES CHANGED, ALGORITHM, FLOWS, TEST RESULTS, MANUAL TEST STEPS). Confidence: 0.7

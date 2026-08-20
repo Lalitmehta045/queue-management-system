@@ -1,4 +1,4 @@
-import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma, SubscriptionStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -72,7 +72,7 @@ export class EntitlementsService {
 
   constructor(
     private readonly prisma: PrismaService,
-    configService: ConfigService<ValidatedEnvironment, true>,
+    @Inject(ConfigService) configService: ConfigService<ValidatedEnvironment, true>,
   ) {
     this.timeZone = configService.get('TOKEN_TIME_ZONE');
   }

@@ -81,12 +81,6 @@ export class AuthService {
 
     const result = await this.createTokens(user.id, { userAgent, ipAddress });
 
-    // After login, check if this user is a COUNTER_OPERATOR with counter assignments.
-    // If so, their counter is now ONLINE — backfill unassigned WAITING tokens.
-    void this.onOperatorLogin(user.id).catch((err: unknown) => {
-      this.logger.error('Failed to backfill tokens on operator login', err instanceof Error ? err.stack : err);
-    });
-
     return result;
   }
 
@@ -101,14 +95,6 @@ export class AuthService {
       where: { id: sessionId },
       data: { revokedAt: new Date() },
     });
-
-    // Publish QUEUE_UPDATED for branches where this operator has counter assignments
-    // so public displays stop showing this counter as available.
-    if (session) {
-      void this.onOperatorLogout(session.userId).catch((err: unknown) => {
-        this.logger.error('Failed to handle operator logout', err instanceof Error ? err.stack : err);
-      });
-    }
   }
 
   async refresh(refreshToken: string, userAgent?: string, ipAddress?: string) {
@@ -195,57 +181,4 @@ export class AuthService {
     };
   }
 
-  /**
-   * Called after a successful login. If the user is a COUNTER_OPERATOR with
-   * counter assignments, backfill unassigned WAITING tokens to their counter(s)
-   * and publish QUEUE_UPDATED so displays update immediately.
-   */
-  private async onOperatorLogin(userId: string): Promise<void> {
-    const assignments = await this.prisma.counterAssignment.findMany({
-      where: { userId },
-      select: {
-        counter: {
-          select: { branchId: true },
-        },
-      },
-    });
-
-    if (!assignments.length) return;
-
-    // Deduplicate branch IDs
-    const branchIds = [...new Set(assignments.map((a) => a.counter.branchId))];
-
-    for (const branchId of branchIds) {
-      await this.prisma.$transaction(async (tx) => {
-        await this.queueAllocation.backfillUnassignedWaitingTokens(tx, branchId);
-      });
-      this.displayEvents.publish(branchId, 'QUEUE_UPDATED');
-      this.logger.log(`Operator ${userId} login: backfilled tokens for branch ${branchId}`);
-    }
-  }
-
-  /**
-   * Called after a successful logout. Publishes QUEUE_UPDATED for all branches
-   * where the operator has counter assignments, so displays stop showing the
-   * now-offline counter as receiving tokens.
-   */
-  private async onOperatorLogout(userId: string): Promise<void> {
-    const assignments = await this.prisma.counterAssignment.findMany({
-      where: { userId },
-      select: {
-        counter: {
-          select: { branchId: true },
-        },
-      },
-    });
-
-    if (!assignments.length) return;
-
-    const branchIds = [...new Set(assignments.map((a) => a.counter.branchId))];
-
-    for (const branchId of branchIds) {
-      this.displayEvents.publish(branchId, 'QUEUE_UPDATED');
-      this.logger.log(`Operator ${userId} logout: published QUEUE_UPDATED for branch ${branchId}`);
-    }
-  }
 }

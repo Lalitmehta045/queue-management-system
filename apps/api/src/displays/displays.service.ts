@@ -13,7 +13,7 @@ import { getBusinessDate } from '../utils/date.util';
 
 
 type Tenant = NonNullable<AuthenticatedRequest['tenant']>;
-type PublicToken = { tokenLabel: string; counter: string; status: TokenStatus; service?: string; department?: string; recalled: boolean; recallCount: number; calledAt: string | null };
+type PublicToken = { tokenLabel: string; counter: string; tokenType: string; status: TokenStatus; service?: string; department?: string; recalled: boolean; recallCount: number; calledAt: string | null };
 
 @Injectable()
 export class DisplaysService {
@@ -150,25 +150,12 @@ export class DisplaysService {
     const recent = recentRows.filter((token) => token.id !== currentRowsId(currentTokens)).slice(0, 5).map((token) => this.toPublicToken(token));
     const waitingTotal = await this.prisma.token.count({ where: { ...businessDateFilter, status: TokenStatus.WAITING, queueEntry: { status: 'WAITING', service: { department: { branchId: display.branchId } } } } });
 
-    const now = new Date();
-    const branchCounters = await this.prisma.counter.findMany({
+        const branchCounters = await this.prisma.counter.findMany({
       where: {
         branchId: display.branchId,
         status: CounterStatus.ACTIVE,
-        assignments: {
-          some: {
-            user: {
-              refreshSessions: {
-                some: {
-                  revokedAt: null,
-                  expiresAt: { gt: now },
-                },
-              },
-            },
-          },
-        },
       },
-      select: { id: true, name: true, code: true },
+      select: { id: true, name: true, code: true, tokenType: true, status: true },
       orderBy: { name: 'asc' },
     });
     
@@ -183,7 +170,7 @@ export class DisplaysService {
       
       const counterWaitingTokens = await this.prisma.token.findMany({
         where: { ...businessDateFilter, status: TokenStatus.WAITING, counterId: counter.id },
-        orderBy: [{ queueEntry: { priorityWeight: 'desc' } }, { businessDate: 'asc' }, { sequenceNumber: 'asc' }, { id: 'asc' }],
+        orderBy: [{ queueEntry: { priorityWeight: 'desc' } }, { sequenceNumber: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
         select: this.publicTokenSelect,
       });
 
@@ -214,6 +201,7 @@ export class DisplaysService {
         name: counter.name,
         code: counter.code,
         counter: counter.name ?? counter.code ?? 'Counter',
+          tokenType: counter.tokenType,
         now: nowToken ? this.toPublicToken(nowToken) : null,
         next: nextToken,
         waitingTokens: waitingTokensFiltered,
@@ -261,18 +249,23 @@ export class DisplaysService {
   }
 
   private toPublicToken(token: PublicTokenRow): PublicToken {
-    return { tokenLabel: token.displayNumber, counter: token.counter?.name ?? token.counter?.code ?? 'Counter', status: token.status, recalled: token.recalledAt !== null, recallCount: token.recallCount, calledAt: token.calledAt?.toISOString() ?? null };
+    return { tokenLabel: token.displayNumber, counter: token.counter?.name ?? token.counter?.code ?? 'Counter', tokenType: token.type, status: token.status, recalled: token.recalledAt !== null, recallCount: token.recallCount, calledAt: token.calledAt?.toISOString() ?? null };
   }
 
-  private readonly publicTokenSelect = {
+    private readonly publicTokenSelect = {
     id: true,
     displayNumber: true,
+    type: true,
     status: true,
     calledAt: true,
     recalledAt: true,
     recallCount: true,
     counterId: true,
+    issuedAt: true,
+    createdAt: true,
+    sequenceNumber: true,
     counter: { select: { name: true, code: true } },
+    queueEntry: { select: { priorityWeight: true, service: { select: { name: true, department: { select: { name: true } } } } } },
   } satisfies Prisma.TokenSelect;
 
   private isUniqueError(error: unknown) {
@@ -291,12 +284,17 @@ export class DisplaysService {
 type PublicTokenRow = {
   id: string;
   displayNumber: string;
+  type: string;
   status: TokenStatus;
   calledAt: Date | null;
   recalledAt: Date | null;
   recallCount: number;
   counterId: string | null;
+  issuedAt: Date | null;
+  createdAt: Date;
+  sequenceNumber: number;
   counter: { name: string; code: string } | null;
+  queueEntry?: { priorityWeight: number; service: { name: string; department: { name: string } } } | null;
 };
 
 function currentRowsId(current: Array<{ id: string }>) {
