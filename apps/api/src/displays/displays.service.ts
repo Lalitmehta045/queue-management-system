@@ -89,6 +89,10 @@ export class DisplaysService {
 
     return new Observable<MessageEvent>((subscriber) => {
       let closed = false;
+      
+      // Send a padding event to force reverse proxies (Nginx, Cloudflare) to flush their buffers
+      subscriber.next({ type: 'PADDING', data: 'x'.repeat(4096) });
+
       const sendSnapshot = (eventType: string) => {
         void this.buildPublicSnapshot(display)
           .then((snapshot) => {

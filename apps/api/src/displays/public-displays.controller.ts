@@ -18,6 +18,8 @@ export class PublicDisplaysController {
   async events(@Param('publicId') publicId: string, @Req() request: Request, @Res({ passthrough: true }) res: Response) {
     res.setHeader('X-Accel-Buffering', 'no');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
     return this.displaysService.streamPublicEvents(publicId, request.ip);
   }
 }
