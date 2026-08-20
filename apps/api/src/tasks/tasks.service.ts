@@ -16,7 +16,9 @@ export class TasksService {
 
   @Cron(CronExpression.EVERY_5_MINUTES)
   async cancelEndOfDayTokens() {
-    this.logger.log('Running cancelEndOfDayTokens job');
+    // Disabled auto-cancellation for testing purposes
+    // this.logger.log('Running cancelEndOfDayTokens job');
+    return;
     
     try {
       const branches = await this.prisma.branch.findMany({
