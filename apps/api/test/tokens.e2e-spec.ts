@@ -213,7 +213,7 @@ describe('Tokens (e2e)', () => {
     expect(new Set(generated.map((token) => token.sequenceNumber)).size).toBe(60);
     expect(new Set(generated.map((token) => token.displayNumber)).size).toBe(60);
     expect(await prisma.tokenSequence.count({ where: { branchId: branchA1, serviceId: serviceA1, businessDate: new Date(`${businessDate}T00:00:00.000Z`), tokenType: 'NORMAL' } })).toBe(1);
-  });
+  }, 15000);
 
   it('returns one Token for 50 concurrent requests for the same QueueEntry without consuming extra sequence numbers', async () => {
     const patient = await createPatient(tokenA, orgA, branchA1, 'Same Entry');

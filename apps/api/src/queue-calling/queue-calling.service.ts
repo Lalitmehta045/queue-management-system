@@ -47,7 +47,7 @@ export class QueueCallingService {
       
       const starvationThreshold = new Date(Date.now() - 60 * 60 * 1000); // 1 hour
       let candidates = await tx.token.findMany({
-        where: { ...this.waitingScope(tenant.organizationId, branchId, counter.id, businessDate, counter.tokenType), issuedAt: { lt: starvationThreshold } },
+        where: { ...this.waitingScope(tenant.organizationId, branchId, counter.id, businessDate), issuedAt: { lt: starvationThreshold } },
         orderBy: [{ sequenceNumber: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
         take: 5,
         select: { id: true },
@@ -55,7 +55,7 @@ export class QueueCallingService {
 
       if (candidates.length === 0) {
         candidates = await tx.token.findMany({
-          where: this.waitingScope(tenant.organizationId, branchId, counter.id, businessDate, counter.tokenType),
+          where: this.waitingScope(tenant.organizationId, branchId, counter.id, businessDate),
           orderBy: [{ queueEntry: { priorityWeight: 'desc' } }, { sequenceNumber: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
           take: 20,
           select: { id: true },
@@ -98,7 +98,7 @@ export class QueueCallingService {
         await this.ensureCounterAvailable(tx, tenant.organizationId, branchId, counter.id);
         const businessDate = await this.getActiveBusinessDate(branchId);
         const claimed = await tx.token.updateMany({
-          where: { id: tokenId, ...this.waitingScope(tenant.organizationId, branchId, counter.id, businessDate, counter.tokenType) },
+          where: { id: tokenId, ...this.waitingScope(tenant.organizationId, branchId, counter.id, businessDate) },
           data: { status: TokenStatus.CALLED, operatorId: userId, calledAt: new Date() },
         });
         if (claimed.count !== 1) throw new ConflictException('Token is not available for calling');
@@ -122,7 +122,7 @@ export class QueueCallingService {
     const counter = await this.authorizeCounter(tenant, userId, branchId, counterId);
     const businessDate = await this.getActiveBusinessDate(branchId);
     const data = await this.prisma.token.findMany({
-      where: this.waitingScope(tenant.organizationId, counter.branchId, counter.id, businessDate, counter.tokenType),
+      where: this.waitingScope(tenant.organizationId, counter.branchId, counter.id, businessDate),
       orderBy: [{ queueEntry: { priorityWeight: 'desc' } }, { sequenceNumber: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
       select: this.tokenSelect,
     });

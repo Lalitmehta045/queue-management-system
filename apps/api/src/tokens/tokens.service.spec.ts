@@ -33,15 +33,15 @@ describe('TokensService Bulk Generation', () => {
       branch: { findFirst: jest.fn().mockResolvedValue({ id: 'branch-1' }), findUnique: jest.fn().mockResolvedValue({ organization: { timezone: 'Asia/Kolkata' } }), update: jest.fn() },
       priorityConfiguration: { findFirst: jest.fn() },
       tokenSequence: { create: jest.fn(), findFirst: jest.fn(), findUnique: jest.fn(), updateMany: jest.fn() },
-      token: { count: jest.fn(), create: jest.fn(), updateMany: jest.fn() },
-      queueEntry: { count: jest.fn(), create: jest.fn(), updateMany: jest.fn() },
+      queueEntry: { count: jest.fn(), create: jest.fn(), updateMany: jest.fn(), createManyAndReturn: jest.fn().mockResolvedValue([{ id: 'mock-qe-1' }]) },
+      token: { count: jest.fn(), create: jest.fn(), updateMany: jest.fn(), createMany: jest.fn(), findMany: jest.fn().mockResolvedValue([{ id: 'mock-t-1' }]), createManyAndReturn: jest.fn().mockResolvedValue([{ id: 'mock-t-1' }]) },
     };
 
     mockDisplayEvents = { publish: jest.fn() };
     mockNotifications = { onTokenCreated: jest.fn().mockResolvedValue(undefined) };
     mockAudit = { record: jest.fn() };
     mockEntitlements = { lockOrganization: jest.fn(), enforceVolumeLimit: jest.fn() };
-    mockQueueAllocation = { allocateWaitingTokensBulk: jest.fn() };
+    mockQueueAllocation = { rebalanceWaitingTokens: jest.fn(), acquireRebalanceLock: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -66,17 +66,18 @@ describe('TokensService Bulk Generation', () => {
     mockPrisma.service.findFirst.mockResolvedValue({ id: 's1', acceptingQueueEntries: true });
     mockPrisma.tokenSequence.findUnique.mockResolvedValue({ id: 'seq1', nextNumber: 1 });
     mockPrisma.tokenSequence.updateMany.mockResolvedValue({ count: 1 });
-    mockQueueAllocation.allocateWaitingTokensBulk.mockResolvedValue(['c1']);
-    mockPrisma.queueEntry.create.mockResolvedValue({ id: 'qe1' });
-    mockPrisma.token.create.mockResolvedValue({ id: 't1', displayNumber: 'T-001' });
+    mockQueueAllocation.rebalanceWaitingTokens.mockResolvedValue(undefined);
+    mockPrisma.queueEntry.createManyAndReturn.mockResolvedValue([{ id: 'qe1' }]);
+    mockPrisma.token.findMany.mockResolvedValue([{ id: 't1', displayNumber: 'T-001' }]);
 
     const dto: BulkGenerateTokenDto = { serviceId: 's1', quantity: 1, priority: PriorityLevel.NORMAL };
     const result = await service.generateBulk(tenant, branchId, dto);
 
     expect(result.count).toBe(1);
     expect(result.tokens.length).toBe(1);
-    expect(mockPrisma.queueEntry.create).toHaveBeenCalledTimes(1);
-    expect(mockPrisma.token.create).toHaveBeenCalledTimes(1);
+    expect(mockPrisma.queueEntry.createManyAndReturn).toHaveBeenCalledTimes(1);
+    expect(mockPrisma.token.createMany).toHaveBeenCalledTimes(1);
+    expect(mockPrisma.token.findMany).toHaveBeenCalledTimes(1);
     expect(mockPrisma.tokenSequence.updateMany).toHaveBeenCalledWith({
       where: { id: 'seq1', nextNumber: 1 },
       data: { nextNumber: { increment: 1 } }
@@ -88,20 +89,18 @@ describe('TokensService Bulk Generation', () => {
     mockPrisma.service.findFirst.mockResolvedValue({ id: 's1', acceptingQueueEntries: true });
     mockPrisma.tokenSequence.findUnique.mockResolvedValue({ id: 'seq1', nextNumber: 21 });
     mockPrisma.tokenSequence.updateMany.mockResolvedValue({ count: 1 });
-    mockQueueAllocation.allocateWaitingTokensBulk.mockResolvedValue(['c1', 'c2', 'c1', 'c2', 'c1']);
+    mockQueueAllocation.rebalanceWaitingTokens.mockResolvedValue(undefined);
     
-    let qeCount = 0;
-    mockPrisma.queueEntry.create.mockImplementation(() => Promise.resolve({ id: `qe${++qeCount}` }));
-    
-    let tCount = 0;
-    mockPrisma.token.create.mockImplementation((args: any) => Promise.resolve({ id: `t${++tCount}`, displayNumber: `T-0${20+tCount}` }));
+    mockPrisma.queueEntry.createManyAndReturn.mockResolvedValue(Array.from({ length: 5 }, (_, i) => ({ id: `qe${i+1}` })));
+    mockPrisma.token.findMany.mockResolvedValue(Array.from({ length: 5 }, (_, i) => ({ id: `t${i+1}`, displayNumber: `T-0${21+i}` })));
 
     const dto: BulkGenerateTokenDto = { serviceId: 's1', quantity: 5, priority: PriorityLevel.NORMAL };
     const result = await service.generateBulk(tenant, branchId, dto);
 
     expect(result.count).toBe(5);
-    expect(mockPrisma.queueEntry.create).toHaveBeenCalledTimes(5);
-    expect(mockPrisma.token.create).toHaveBeenCalledTimes(5);
+    expect(mockPrisma.queueEntry.createManyAndReturn).toHaveBeenCalledTimes(1);
+    expect(mockPrisma.token.createMany).toHaveBeenCalledTimes(1);
+    expect(mockPrisma.token.findMany).toHaveBeenCalledTimes(1);
     
     expect(mockPrisma.tokenSequence.updateMany).toHaveBeenCalledWith({
       where: { id: 'seq1', nextNumber: 21 },
@@ -118,11 +117,9 @@ describe('TokensService Bulk Generation', () => {
     mockPrisma.service.findFirst.mockResolvedValue({ id: 's1', acceptingQueueEntries: true });
     mockPrisma.tokenSequence.findUnique.mockResolvedValue({ id: 'seq1', nextNumber: 101 });
     mockPrisma.tokenSequence.updateMany.mockResolvedValue({ count: 1 });
-    mockQueueAllocation.allocateWaitingTokensBulk.mockResolvedValue(['c1', 'c2']);
+    mockQueueAllocation.rebalanceWaitingTokens.mockResolvedValue(undefined);
     
-    mockPrisma.queueEntry.create
-      .mockResolvedValueOnce({ id: 'qe1' })
-      .mockRejectedValueOnce(new Error('Simulated DB Failure'));
+    mockPrisma.queueEntry.createManyAndReturn.mockRejectedValue(new Error('Simulated DB Failure'));
 
     const dto: BulkGenerateTokenDto = { serviceId: 's1', quantity: 2, priority: PriorityLevel.NORMAL };
     
@@ -151,16 +148,16 @@ describe('TokensService Bulk Generation', () => {
     mockPrisma.service.findFirst.mockResolvedValue({ id: 's1', acceptingQueueEntries: true });
     mockPrisma.tokenSequence.findUnique.mockResolvedValue({ id: 'seq1', nextNumber: 1 });
     mockPrisma.tokenSequence.updateMany.mockResolvedValue({ count: 1 });
-    mockQueueAllocation.allocateWaitingTokensBulk.mockResolvedValue(['c1']);
-    mockPrisma.queueEntry.create.mockResolvedValue({ id: 'qe1' });
-    mockPrisma.token.create.mockResolvedValue({ id: 't1', displayNumber: 'S-001' });
+    mockQueueAllocation.rebalanceWaitingTokens.mockResolvedValue(undefined);
+    mockPrisma.queueEntry.createManyAndReturn.mockResolvedValue([{ id: 'qe1' }]);
+    mockPrisma.token.findMany.mockResolvedValue([{ id: 't1', displayNumber: 'S-001' }]);
 
     const dto = { serviceId: 's1', quantity: 1, priority: PriorityLevel.NORMAL, type: 'SPECIAL', specialCategory: 'DISABLED' };
     await service.generateBulk(tenant, branchId, dto as any);
     
-    expect(mockPrisma.queueEntry.create).toHaveBeenCalledWith(
+    expect(mockPrisma.queueEntry.createManyAndReturn).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ priority: 'SENIOR_CITIZEN' })
+        data: expect.arrayContaining([expect.objectContaining({ priority: 'SENIOR_CITIZEN' })])
       })
     );
   });
@@ -169,7 +166,7 @@ describe('TokensService Bulk Generation', () => {
     mockPrisma.service.findFirst.mockResolvedValue({ id: 's1', acceptingQueueEntries: true });
     mockPrisma.tokenSequence.findUnique.mockResolvedValue({ id: 'seq1', nextNumber: 1 });
     mockPrisma.tokenSequence.updateMany.mockResolvedValue({ count: 1 });
-    mockQueueAllocation.allocateWaitingTokensBulk.mockResolvedValue(['c1']);
+    mockQueueAllocation.rebalanceWaitingTokens.mockResolvedValue(undefined);
     mockPrisma.queueEntry.create.mockResolvedValue({ id: 'qe1' });
     mockPrisma.token.create.mockResolvedValue({ id: 't1', displayNumber: 'S-001' });
 
@@ -199,8 +196,8 @@ describe('TokensService Reset Token Sequence', () => {
       $transaction: jest.fn((callback) => callback(mockPrisma)),
       $queryRaw: jest.fn().mockResolvedValue([{ id: 'branch-1' }]),
       branch: { findFirst: jest.fn().mockResolvedValue({ id: 'branch-1' }), findUnique: jest.fn().mockResolvedValue({ organization: { timezone: 'Asia/Kolkata' } }), update: jest.fn() },
-      token: { count: jest.fn(), updateMany: jest.fn(), create: jest.fn() },
-      queueEntry: { count: jest.fn(), updateMany: jest.fn(), create: jest.fn() },
+      token: { count: jest.fn(), updateMany: jest.fn(), create: jest.fn(), createMany: jest.fn(), findMany: jest.fn() },
+      queueEntry: { count: jest.fn(), updateMany: jest.fn(), create: jest.fn(), createManyAndReturn: jest.fn() },
       tokenSequence: { findFirst: jest.fn(), findUnique: jest.fn(), create: jest.fn(), updateMany: jest.fn() },
       service: { findFirst: jest.fn() },
     };
@@ -216,7 +213,7 @@ describe('TokensService Reset Token Sequence', () => {
         { provide: NotificationsService, useValue: { onTokenCreated: jest.fn().mockResolvedValue(undefined) } },
         { provide: AuditService, useValue: mockAudit },
         { provide: EntitlementsService, useValue: { lockOrganization: jest.fn(), enforceVolumeLimit: jest.fn() } },
-        { provide: QueueAllocationService, useValue: { allocateWaitingTokensBulk: jest.fn() } },
+        { provide: QueueAllocationService, useValue: { rebalanceWaitingTokens: jest.fn() } },
       ],
     }).compile();
 

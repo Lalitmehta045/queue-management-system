@@ -302,6 +302,7 @@ export class EntitlementsService {
   /** Current usage vs. plan limits for the organization's own dashboard. */
   async getUsage(organizationId: string) {
     const access = await this.resolveAccess(organizationId);
+    const org = await this.prisma.organization.findUnique({ where: { id: organizationId }, select: { timezone: true } });
 
     const [branches, users, counters, services, displays, waitingQueue, dailyTokens] =
       await Promise.all([
@@ -315,7 +316,7 @@ export class EntitlementsService {
         }),
         this.prisma.token.count({
           where: {
-            businessDate: this.businessDateToday(),
+            businessDate: this.businessDateToday(org?.timezone || undefined),
             queueEntry: { patient: { branch: { organizationId } } },
           },
         }),
@@ -336,9 +337,9 @@ export class EntitlementsService {
   // Helpers
   // ---------------------------------------------------------------
 
-  private businessDateToday(now = new Date()): Date {
+  private businessDateToday(timezone?: string, now = new Date()): Date {
     const parts = new Intl.DateTimeFormat('en-CA', {
-      timeZone: this.timeZone,
+      timeZone: timezone || this.timeZone || 'UTC',
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',

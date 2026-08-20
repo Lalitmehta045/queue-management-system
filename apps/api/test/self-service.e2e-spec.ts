@@ -39,29 +39,8 @@ describe('SelfService (e2e)', () => {
   });
 
   beforeEach(async () => {
-    // Clean up
-    await prisma.token.deleteMany();
-    await prisma.printJob.deleteMany();
-    await prisma.queueEntry.deleteMany();
-    await prisma.appointment.deleteMany();
-    await prisma.patient.deleteMany();
-    await prisma.tokenSequence.deleteMany();
-    await prisma.service.deleteMany();
-    await prisma.department.deleteMany();
-    
-    // Clean up other branch dependents
-    await prisma.counterAssignment.deleteMany();
-    await prisma.counter.deleteMany();
-    await prisma.printer.deleteMany();
-    await prisma.display.deleteMany();
-    await prisma.branchWorkingHours.deleteMany();
-    await prisma.notificationSetting.deleteMany();
-    await prisma.notification.deleteMany();
-    await prisma.auditLog.deleteMany();
-
-    await prisma.branch.deleteMany();
-    await prisma.membership.deleteMany();
-    await prisma.organization.deleteMany();
+    // Clean up using the centralized utility to prevent constraint violations
+    await clearDatabase(prisma);
 
     // Setup test data
     const org = await prisma.organization.create({

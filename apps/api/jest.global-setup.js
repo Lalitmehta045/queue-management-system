@@ -39,7 +39,12 @@ module.exports = async function globalSetup() {
     throw new Error('[jest.global-setup] DATABASE_URL not found or invalid. Cannot provision test database.');
   }
 
-  const testDbUrl = swapDatabaseName(devUrl, TEST_DB_NAME);
+  let testDbUrl = swapDatabaseName(devUrl, TEST_DB_NAME);
+  if (testDbUrl.includes('?')) {
+    testDbUrl += '&connection_limit=100&pool_timeout=15';
+  } else {
+    testDbUrl += '?connection_limit=100&pool_timeout=15';
+  }
   const adminUrl = swapDatabaseName(devUrl, 'postgres');
 
   // 1. Create the test database if it does not exist.

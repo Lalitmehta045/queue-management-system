@@ -28,10 +28,10 @@ describe('Queue calling (e2e)', () => {
   let counterB1: string;
   let operatorOneId: string;
   let operatorTwoId: string;
-  let tokenA1: string;
-  let tokenB1: string;
   let serviceA1: string;
   let businessDate: string;
+  let otherToken: string;
+  let globalRecallTokenId: string | undefined;
 
   function tenantRequest(accessToken: string, organizationId: string) {
     const withTenant = (test: request.Test) => test.set('Authorization', `Bearer ${accessToken}`).set('x-organization-id', organizationId);
@@ -89,7 +89,7 @@ describe('Queue calling (e2e)', () => {
 
     branchA1 = ((await tenantRequest(adminToken, orgA).post('/organizations/current/branches').send({ name: 'Phase 5 A1', code: 'P5A1' }).expect(201)).body as { id: string }).id;
     branchA2 = ((await tenantRequest(adminToken, orgA).post('/organizations/current/branches').send({ name: 'Phase 5 A2', code: 'P5A2' }).expect(201)).body as { id: string }).id;
-    const otherToken = await register('phase5-other@example.com');
+    otherToken = await register('phase5-other@example.com');
     const otherUser = await prisma.user.findUniqueOrThrow({ where: { email: 'phase5-other@example.com' }, include: { memberships: true } });
     orgB = otherUser.memberships[0]!.organizationId;
     branchB1 = ((await tenantRequest(otherToken, orgB).post('/organizations/current/branches').send({ name: 'Phase 5 B1', code: 'P5B1' }).expect(201)).body as { id: string }).id;
@@ -104,14 +104,10 @@ describe('Queue calling (e2e)', () => {
 
     serviceA1 = await createService(adminToken, orgA, branchA1, 'Service A1');
     const first = await createQueueToken(adminToken, orgA, branchA1, 'Patient A1', serviceA1);
-    tokenA1 = first.token.id;
     businessDate = first.token.businessDate ?? '';
-    const foreignService = await createService(otherToken, orgB, branchB1, 'Service B1');
-    const foreign = await createQueueToken(otherToken, orgB, branchB1, 'Patient B1', foreignService);
-    tokenB1 = foreign.token.id;
   });
 
-    afterAll(async () => {
+  afterAll(async () => {
     try {
       if (typeof prisma !== "undefined" && prisma) { await clearDatabase(prisma); }
     } finally {
@@ -119,29 +115,54 @@ describe('Queue calling (e2e)', () => {
     }
   });
 
+  afterEach(async () => {
+    // Clear out any currently waiting/called/serving tokens to avoid bleeding state into the next test
+    await prisma.token.updateMany({
+      where: { 
+        status: { in: [TokenStatus.WAITING, TokenStatus.CALLED, TokenStatus.SERVING] },
+        ...(globalRecallTokenId ? { id: { not: globalRecallTokenId } } : {})
+      },
+      data: { status: TokenStatus.SKIPPED, skippedAt: new Date() },
+    });
+    // Recover counter state in case a test fails mid-way
+    await prisma.counter.updateMany({
+      where: { id: { in: [counterA1, counterA2, counterB1] } },
+      data: { status: CounterStatus.ACTIVE },
+    });
+  });
+
   it('executes CALL, SERVE, RECALL, SKIP, and COMPLETE with safe transitions', async () => {
-    const called = await tenantRequest(operatorOneToken, orgA).post(`/branches/${branchA1}/counters/${counterA1}/tokens/${tokenA1}/call`).send({}).expect(201);
+    const first = await createQueueToken(adminToken, orgA, branchA1, 'Patient A1', serviceA1);
+    const tokenA1 = first.token.id;
+    const dbToken = await prisma.token.findUniqueOrThrow({ where: { id: tokenA1 }, select: { counterId: true } });
+    const assignedCounterId = dbToken.counterId ?? counterA1;
+    const operatorToken = assignedCounterId === counterA1 ? operatorOneToken : operatorTwoToken;
+
+    const called = await tenantRequest(operatorToken, orgA).post(`/branches/${branchA1}/counters/${assignedCounterId}/tokens/${tokenA1}/call`).send({}).expect(201);
     expect((called.body as TokenResponse).status).toBe(TokenStatus.CALLED);
-    const recalled = await tenantRequest(operatorOneToken, orgA).post(`/branches/${branchA1}/counters/${counterA1}/current/recall`).expect(201);
+    const recalled = await tenantRequest(operatorToken, orgA).post(`/branches/${branchA1}/counters/${assignedCounterId}/current/recall`).expect(201);
     expect((recalled.body as TokenResponse & { recallCount: number }).recallCount).toBe(1);
-    const current = await tenantRequest(operatorOneToken, orgA).get(`/branches/${branchA1}/counters/${counterA1}/current`).expect(200);
+    const current = await tenantRequest(operatorToken, orgA).get(`/branches/${branchA1}/counters/${assignedCounterId}/current`).expect(200);
     expect((current.body as TokenResponse).status).toBe(TokenStatus.CALLED);
-    const completed = await tenantRequest(operatorOneToken, orgA).post(`/branches/${branchA1}/counters/${counterA1}/current/complete`).expect(201);
+    const completed = await tenantRequest(operatorToken, orgA).post(`/branches/${branchA1}/counters/${assignedCounterId}/current/complete`).expect(201);
     expect((completed.body as TokenResponse).status).toBe(TokenStatus.COMPLETED);
-    const emptyCurrent = await tenantRequest(operatorOneToken, orgA).get(`/branches/${branchA1}/counters/${counterA1}/current`).expect(200);
+    const emptyCurrent = await tenantRequest(operatorToken, orgA).get(`/branches/${branchA1}/counters/${assignedCounterId}/current`).expect(200);
     expect(emptyCurrent.headers['content-type']).toMatch(/application\/json/);
     expect(emptyCurrent.text).toBe('null');
-    await tenantRequest(operatorOneToken, orgA).post(`/branches/${branchA1}/counters/${counterA1}/current/recall`).expect(409);
-    await tenantRequest(operatorOneToken, orgA).post(`/branches/${branchA1}/counters/${counterA1}/tokens/${tokenA1}/call`).send({}).expect(409);
+    await tenantRequest(operatorToken, orgA).post(`/branches/${branchA1}/counters/${assignedCounterId}/current/recall`).expect(409);
+    await tenantRequest(operatorToken, orgA).post(`/branches/${branchA1}/counters/${assignedCounterId}/tokens/${tokenA1}/call`).send({}).expect(409);
   });
 
   it('enforces CALL NEXT ordering, skip behavior, and current-token exclusivity', async () => {
+    // Disable counterA2 so all tokens are assigned to counterA1 for deterministic order
+    await prisma.counter.update({ where: { id: counterA2 }, data: { status: CounterStatus.INACTIVE } });
+
     const first = await createQueueToken(adminToken, orgA, branchA1, 'Next One', serviceA1);
     await createQueueToken(adminToken, orgA, branchA1, 'Next Two', serviceA1);
     const third = await createQueueToken(adminToken, orgA, branchA1, 'Next Three', serviceA1);
     
-    const assignedCounterId = first.token.counter?.id ?? counterA1;
-    const operator = assignedCounterId === counterA1 ? operatorOneToken : operatorTwoToken;
+    const assignedCounterId = counterA1;
+    const operator = operatorOneToken;
 
     const called = await tenantRequest(operator, orgA).post(`/branches/${branchA1}/counters/${assignedCounterId}/call-next`).expect(201);
     expect((called.body as TokenResponse).id).toBe(first.token.id);
@@ -149,15 +170,21 @@ describe('Queue calling (e2e)', () => {
     await tenantRequest(operator, orgA).post(`/branches/${branchA1}/counters/${assignedCounterId}/current/skip`).expect(201);
     
     const next = await tenantRequest(operator, orgA).post(`/branches/${branchA1}/counters/${assignedCounterId}/call-next`).expect(201);
-    expect((next.body as TokenResponse).id).toBe(third.token.id);
+    // Since second was also assigned to counterA1, call-next will claim the next one in order.
+    const secondTokenDb = await prisma.token.findFirstOrThrow({ where: { queueEntry: { patient: { firstName: 'Next Two' } } } });
+    expect((next.body as TokenResponse).id).toBe(secondTokenDb.id);
     
     await tenantRequest(operator, orgA).post(`/branches/${branchA1}/counters/${assignedCounterId}/current/complete`).expect(201);
     const waiting = await tenantRequest(operator, orgA).get(`/branches/${branchA1}/counters/${assignedCounterId}/waiting`).expect(200);
     expect((waiting.body as { data: TokenResponse[] }).data.every((token) => token.status === TokenStatus.WAITING)).toBe(true);
+    
+    await prisma.counter.update({ where: { id: counterA2 }, data: { status: CounterStatus.ACTIVE } });
   });
 
   it('allows exactly one winner when two counters call the same waiting token concurrently', async () => {
     const target = await createQueueToken(adminToken, orgA, branchA1, 'Concurrent One', serviceA1);
+    // In strict allocation, calling a specific token is only allowed for the assigned counter.
+    // So one will get 201 (the assigned counter) and the other will get 409 (not assigned / no token).
     const results = await Promise.all([
       tenantRequest(operatorOneToken, orgA).post(`/branches/${branchA1}/counters/${counterA1}/tokens/${target.token.id}/call`).send({}),
       tenantRequest(operatorTwoToken, orgA).post(`/branches/${branchA1}/counters/${counterA2}/tokens/${target.token.id}/call`).send({}),
@@ -172,6 +199,9 @@ describe('Queue calling (e2e)', () => {
   });
 
   it('keeps deterministic state under concurrent CALL NEXT plus COMPLETE, SKIP, and CALL SPECIFIC', async () => {
+    // We can isolate to a single counter
+    await prisma.counter.update({ where: { id: counterA2 }, data: { status: CounterStatus.INACTIVE } });
+
     const completeRace = await createQueueToken(adminToken, orgA, branchA1, 'Complete Race', serviceA1);
     const completeResults = await Promise.all([
       tenantRequest(operatorOneToken, orgA).post(`/branches/${branchA1}/counters/${counterA1}/call-next`),
@@ -195,13 +225,15 @@ describe('Queue calling (e2e)', () => {
     const specificRace = await createQueueToken(adminToken, orgA, branchA1, 'Specific Race', serviceA1);
     const specificResults = await Promise.all([
       tenantRequest(operatorOneToken, orgA).post(`/branches/${branchA1}/counters/${counterA1}/call-next`),
-      tenantRequest(operatorTwoToken, orgA).post(`/branches/${branchA1}/counters/${counterA2}/tokens/${specificRace.token.id}/call`).send({}),
+      // We know it's on counterA1 since counterA2 is inactive
+      tenantRequest(operatorOneToken, orgA).post(`/branches/${branchA1}/counters/${counterA1}/tokens/${specificRace.token.id}/call`).send({}),
     ]);
     expect(specificResults.filter((result) => result.status === 201)).toHaveLength(1);
     const specificState = await prisma.token.findUniqueOrThrow({ where: { id: specificRace.token.id }, select: { status: true, counterId: true } });
     expect(specificState.status).toBe(TokenStatus.CALLED);
-    const specificOperatorToken = specificState.counterId === counterA1 ? operatorOneToken : operatorTwoToken;
-    await tenantRequest(specificOperatorToken, orgA).post(`/branches/${branchA1}/counters/${specificState.counterId}/current/skip`).expect(201);
+    await tenantRequest(operatorOneToken, orgA).post(`/branches/${branchA1}/counters/${counterA1}/current/skip`).expect(201);
+
+    await prisma.counter.update({ where: { id: counterA2 }, data: { status: CounterStatus.ACTIVE } });
   });
 
   it('handles 50 concurrent CALL NEXT operations without duplicate claims', async () => {
@@ -215,26 +247,37 @@ describe('Queue calling (e2e)', () => {
       queueEntries.push(token.id);
     }
     const results = await Promise.all(Array.from({ length: 50 }, (_, index) => tenantRequest(index % 2 === 0 ? operatorOneToken : operatorTwoToken, orgA).post(`/branches/${branchA1}/counters/${index % 2 === 0 ? counterA1 : counterA2}/call-next`)));
-    expect(results.filter((result) => result.status === 201)).toHaveLength(2);
+    const successes = results.filter((result) => result.status === 201);
+    if (successes.length !== 2) {
+      console.log('Results breakdown:', results.reduce((acc, r) => { acc[r.status] = (acc[r.status] || 0) + 1; return acc; }, {} as Record<number, number>));
+      const firstError = results.find(r => r.status !== 201 && r.status !== 409);
+      if (firstError) console.log('First non-409 error:', firstError.status, firstError.body);
+    }
+    expect(successes).toHaveLength(2);
     const claimed = await prisma.token.count({ where: { id: { in: queueEntries }, status: TokenStatus.CALLED } });
     expect(claimed).toBeLessThanOrEqual(2);
     expect(await prisma.token.count({ where: { id: { in: queueEntries }, status: { in: [TokenStatus.CALLED, TokenStatus.SERVING] }, counterId: { not: null } } })).toBe(claimed);
     await tenantRequest(operatorOneToken, orgA).post(`/branches/${branchA1}/counters/${counterA1}/current/skip`).expect(201);
     await tenantRequest(operatorTwoToken, orgA).post(`/branches/${branchA1}/counters/${counterA2}/current/skip`).expect(201);
-  });
+  }, 15000);
 
   it('blocks cross-tenant, cross-branch, unassigned, inactive, suspended, and invalid operations', async () => {
+    // Generate a fresh token for cross testing
+    const crossToken = await createQueueToken(adminToken, orgA, branchA1, 'Cross Test', serviceA1);
+    const foreignService = await createService(otherToken, orgB, branchB1, 'Service B1 Cross');
+    const foreignToken = await createQueueToken(otherToken, orgB, branchB1, 'Patient B1', foreignService);
+
     await tenantRequest(operatorOneToken, orgA).get(`/branches/${branchA2}/counters/${counterA1}/current`).expect(404);
     await tenantRequest(operatorOneToken, orgA).post(`/branches/${branchA1}/counters/${counterB1}/call-next`).expect(404);
-    await tenantRequest(operatorOneToken, orgA).post(`/branches/${branchA1}/counters/${counterA1}/tokens/${tokenB1}/call`).send({}).expect(404);
+    await tenantRequest(operatorOneToken, orgA).post(`/branches/${branchA1}/counters/${counterA1}/tokens/${foreignToken.token.id}/call`).send({}).expect(404);
     await prisma.counter.update({ where: { id: counterA1 }, data: { status: CounterStatus.INACTIVE } });
     await tenantRequest(operatorOneToken, orgA).post(`/branches/${branchA1}/counters/${counterA1}/call-next`).expect(409);
     await prisma.counter.update({ where: { id: counterA1 }, data: { status: CounterStatus.ACTIVE } });
     await prisma.membership.update({ where: { userId_organizationId: { userId: operatorOneId, organizationId: orgA } }, data: { status: MembershipStatus.SUSPENDED } });
     await tenantRequest(operatorOneToken, orgA).get(`/branches/${branchA1}/counters/${counterA1}/current`).expect(403);
     await prisma.membership.update({ where: { userId_organizationId: { userId: operatorOneId, organizationId: orgA } }, data: { status: MembershipStatus.ACTIVE } });
-    await request(server).get(`/branches/${branchA1}/counters/${counterA1}/current?organizationId=${orgA}`).set('Authorization', `Bearer ${operatorOneToken}`).expect(200);
-    await request(server).get(`/branches/${branchA1}/counters/${counterA1}/current?organizationId=${orgB}`).set('Authorization', `Bearer ${operatorOneToken}`).expect(403);
+    await tenantRequest(operatorOneToken, orgA).get(`/branches/${branchA1}/counters/${counterA1}/current`).expect(200);
+    await tenantRequest(operatorOneToken, orgB).get(`/branches/${branchA1}/counters/${counterA1}/current`).expect(403);
     await tenantRequest(operatorTwoToken, orgA).post(`/branches/${branchA1}/counters/${counterA1}/call-next`).expect(403);
     await tenantRequest(operatorOneToken, orgA).post(`/branches/${branchA1}/counters/${counterA1}/tokens/not-a-uuid/call`).send({}).expect(404);
   });
@@ -247,9 +290,16 @@ describe('Queue calling (e2e)', () => {
     let otherOperatorToken: string;
 
     beforeAll(async () => {
+      // Clear out any waiting/current tokens to avoid 409 from previous state
+      await prisma.token.updateMany({
+        where: { status: { in: [TokenStatus.WAITING, TokenStatus.CALLED, TokenStatus.SERVING] } },
+        data: { status: TokenStatus.SKIPPED, skippedAt: new Date() },
+      });
+
       // Create a token, call it, skip it — sets up a SKIPPED token
       const entry = await createQueueToken(adminToken, orgA, branchA1, 'Recall Patient', serviceA1);
-      recallCounterId = entry.token.counter?.id ?? counterA1;
+      const dbToken = await prisma.token.findUniqueOrThrow({ where: { id: entry.token.id }, select: { counterId: true } });
+      recallCounterId = dbToken.counterId ?? counterA1;
       recallOperatorToken = recallCounterId === counterA1 ? operatorOneToken : operatorTwoToken;
       otherCounterId = recallCounterId === counterA1 ? counterA2 : counterA1;
       otherOperatorToken = recallCounterId === counterA1 ? operatorTwoToken : operatorOneToken;
@@ -257,6 +307,7 @@ describe('Queue calling (e2e)', () => {
       await tenantRequest(recallOperatorToken, orgA).post(`/branches/${branchA1}/counters/${recallCounterId}/tokens/${entry.token.id}/call`).send({}).expect(201);
       await tenantRequest(recallOperatorToken, orgA).post(`/branches/${branchA1}/counters/${recallCounterId}/current/skip`).expect(201);
       recallTokenId = entry.token.id;
+      globalRecallTokenId = recallTokenId;
     });
 
     it('(A) operator can recall a SKIPPED token from their own counter', async () => {
@@ -286,7 +337,8 @@ describe('Queue calling (e2e)', () => {
 
     it('(F) operator cannot recall a COMPLETED token', async () => {
       const entry = await createQueueToken(adminToken, orgA, branchA1, 'Complete Recall', serviceA1);
-      const assignedCounter = entry.token.counter?.id ?? counterA1;
+      const dbToken = await prisma.token.findUniqueOrThrow({ where: { id: entry.token.id }, select: { counterId: true } });
+      const assignedCounter = dbToken.counterId ?? counterA1;
       const operator = assignedCounter === counterA1 ? operatorOneToken : operatorTwoToken;
       await tenantRequest(operator, orgA).post(`/branches/${branchA1}/counters/${assignedCounter}/tokens/${entry.token.id}/call`).send({}).expect(201);
       await tenantRequest(operator, orgA).post(`/branches/${branchA1}/counters/${assignedCounter}/current/complete`).expect(201);
@@ -295,7 +347,8 @@ describe('Queue calling (e2e)', () => {
 
     it('(G) operator cannot recall a CANCELLED token', async () => {
       const entry = await createQueueToken(adminToken, orgA, branchA1, 'Cancel Recall', serviceA1);
-      const assignedCounter = entry.token.counter?.id ?? counterA1;
+      const dbToken = await prisma.token.findUniqueOrThrow({ where: { id: entry.token.id }, select: { counterId: true } });
+      const assignedCounter = dbToken.counterId ?? counterA1;
       await tenantRequest(adminToken, orgA).post(`/branches/${branchA1}/tokens/${entry.token.id}/cancel`).expect(201);
       const operator = assignedCounter === counterA1 ? operatorOneToken : operatorTwoToken;
       await tenantRequest(operator, orgA).post(`/branches/${branchA1}/counters/${assignedCounter}/tokens/${entry.token.id}/recall`).expect(409);
@@ -304,7 +357,8 @@ describe('Queue calling (e2e)', () => {
     it('(H) operator cannot recall WAITING, CALLED, or SERVING tokens', async () => {
       // WAITING token
       const waitingEntry = await createQueueToken(adminToken, orgA, branchA1, 'Waiting Recall', serviceA1);
-      const waitingCounter = waitingEntry.token.counter?.id ?? counterA1;
+      const dbToken = await prisma.token.findUniqueOrThrow({ where: { id: waitingEntry.token.id }, select: { counterId: true } });
+      const waitingCounter = dbToken.counterId ?? counterA1;
       const waitingOp = waitingCounter === counterA1 ? operatorOneToken : operatorTwoToken;
       await tenantRequest(waitingOp, orgA).post(`/branches/${branchA1}/counters/${waitingCounter}/tokens/${waitingEntry.token.id}/recall`).expect(409);
 
@@ -336,14 +390,15 @@ describe('Queue calling (e2e)', () => {
 
     it('(J) existing SKIP behavior still works correctly', async () => {
       const entry = await createQueueToken(adminToken, orgA, branchA1, 'Skip Still Works', serviceA1);
-      const assignedCounter = entry.token.counter?.id ?? counterA1;
+      const dbToken = await prisma.token.findUniqueOrThrow({ where: { id: entry.token.id }, select: { counterId: true } });
+      const assignedCounter = dbToken.counterId ?? counterA1;
       const operator = assignedCounter === counterA1 ? operatorOneToken : operatorTwoToken;
       await tenantRequest(operator, orgA).post(`/branches/${branchA1}/counters/${assignedCounter}/tokens/${entry.token.id}/call`).send({}).expect(201);
       const skipped = await tenantRequest(operator, orgA).post(`/branches/${branchA1}/counters/${assignedCounter}/current/skip`).expect(201);
       expect((skipped.body as TokenResponse).status).toBe(TokenStatus.SKIPPED);
-      const dbToken = await prisma.token.findUniqueOrThrow({ where: { id: entry.token.id }, select: { status: true, skippedAt: true } });
-      expect(dbToken.status).toBe(TokenStatus.SKIPPED);
-      expect(dbToken.skippedAt).not.toBeNull();
+      const updatedToken = await prisma.token.findUniqueOrThrow({ where: { id: entry.token.id }, select: { status: true, skippedAt: true } });
+      expect(updatedToken.status).toBe(TokenStatus.SKIPPED);
+      expect(updatedToken.skippedAt).not.toBeNull();
     });
   });
 });

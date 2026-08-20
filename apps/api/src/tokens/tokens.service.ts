@@ -128,8 +128,6 @@ export class TokensService {
           const claimed = await tx.tokenSequence.updateMany({ where: { id: sequence.id, nextNumber: sequenceNumber }, data: { nextNumber: { increment: 1 } } });
           if (claimed.count !== 1) throw new RetryableTokenGenerationError('Token sequence contention');
 
-          const counterId = await this.queueAllocation.allocateWaitingToken(tx, branchId, tokenType);
-
           const token = await tx.token.create({
             data: {
               queueEntryId: queueEntry.id,
@@ -137,7 +135,7 @@ export class TokensService {
               sequenceNumber,
               displayNumber: this.displayNumber(sequenceNumber, tokenType),
               businessDate: normalizedBusinessDate,
-              counterId,
+              counterId: null,
               type: tokenType,
               specialCategory,
             },
@@ -266,8 +264,6 @@ export class TokensService {
           });
           if (claimed.count !== 1) throw new RetryableTokenGenerationError('Token sequence contention');
 
-          const assignments = await this.queueAllocation.allocateWaitingTokensBulk(tx, branchId, quantity, tokenType);
-
           const queueEntriesData = Array.from({ length: quantity }, () => ({
             patientId: patient?.id ?? null,
             serviceId: service.id,
@@ -289,7 +285,7 @@ export class TokensService {
             sequenceNumber: sequenceNumber + i,
             displayNumber: this.displayNumber(sequenceNumber + i, tokenType),
             businessDate: normalizedBusinessDate,
-            counterId: assignments[i] ?? null,
+            counterId: null,
             type: tokenType,
             specialCategory,
           }));

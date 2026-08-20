@@ -101,8 +101,9 @@ export class CountersService {
 
   async setStatus(tenant: Tenant, branchId: string, counterId: string, status: CounterStatus, auditContext?: AuditContext) {
     await this.authorizeBranch(tenant, branchId);
-    await this.get(tenant, branchId, counterId);
+    const existingCounter = await this.get(tenant, branchId, counterId);
     const counter = await this.prisma.$transaction(async (tx) => {
+      await this.queueAllocation.acquireRebalanceLock(tx, branchId);
       const c = await tx.counter.update({ where: { id: counterId }, data: { status }, select: this.counterSelect });
       await this.queueAllocation.rebalanceWaitingTokens(tx, branchId);
       return c;
