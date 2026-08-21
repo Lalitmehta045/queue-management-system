@@ -131,20 +131,36 @@ export default function PublicDisplayPage({ params }: { params: Promise<{ displa
   useEffect(() => {
     if (!displayId) return;
     let cancelled = false;
+    let loadTimedOut = false;
+
+    // If neither HTTP snapshot nor SSE delivers data, leave the skeleton.
+    const loadTimeout = window.setTimeout(() => {
+      if (cancelled || snapshotRef.current) return;
+      loadTimedOut = true;
+      setState('error');
+    }, 12_000);
 
     // Fetch initial snapshot immediately via HTTP to bypass potential SSE buffering
     async function fetchInitial() {
       try {
         const response = await fetch(`/api/public/displays/${encodeURIComponent(displayId)}`, { cache: 'no-store' });
-        if (!response.ok) return;
+        if (!response.ok) {
+          if (!cancelled && !snapshotRef.current) {
+            window.clearTimeout(loadTimeout);
+            setState('error');
+          }
+          return;
+        }
         const next = await response.json() as DisplaySnapshot;
         if (!cancelled && !snapshotRef.current) {
           snapshotRef.current = next;
           setSnapshot(next);
           setState('ready');
+          window.clearTimeout(loadTimeout);
         }
       } catch (e) {
         console.error('Failed to fetch initial snapshot', e);
+        if (!cancelled && !snapshotRef.current) setState('error');
       }
     }
     void fetchInitial();
@@ -165,6 +181,7 @@ export default function PublicDisplayPage({ params }: { params: Promise<{ displa
       });
 
       setState('ready');
+      window.clearTimeout(loadTimeout);
 
       if ((eventType === 'TOKEN_CALLED' || eventType === 'TOKEN_RECALLED') && next.current) {
         const current = next.current;
@@ -186,11 +203,19 @@ export default function PublicDisplayPage({ params }: { params: Promise<{ displa
     };
 
     source.onerror = () => {
-      if (!cancelled) setState(snapshotRef.current ? 'reconnecting' : 'error');
+      if (cancelled) return;
+      // EventSource fires error during reconnect attempts; only fail if we never got data
+      // (or the initial load already timed out / HTTP failed).
+      if (snapshotRef.current) {
+        setState('reconnecting');
+      } else if (loadTimedOut || source.readyState === EventSource.CLOSED) {
+        setState('error');
+      }
     };
 
     return () => {
       cancelled = true;
+      window.clearTimeout(loadTimeout);
       for (const { eventType, handler } of handlers) {
         source.removeEventListener(eventType, handler);
       }
@@ -219,6 +244,17 @@ export default function PublicDisplayPage({ params }: { params: Promise<{ displa
     return () => { cancelled = true; };
   }, [displayId, snapshot, state]);
 
+  if (state === 'error' && !snapshot) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center font-sans gap-3 px-6 text-center">
+        <p className="text-slate-500 text-2xl font-medium">Display unavailable</p>
+        <p className="text-slate-400 text-sm max-w-md">
+          Check that this display is Active in Dashboard → Displays, and that the TV is using the correct Open Screen link.
+        </p>
+      </div>
+    );
+  }
+
   if (state === 'loading' || !snapshot) {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col font-sans p-6 overflow-hidden">
@@ -236,14 +272,6 @@ export default function PublicDisplayPage({ params }: { params: Promise<{ displa
           <div className="flex-1 bg-slate-100 rounded-lg"></div>
           <div className="flex-1 bg-slate-100 rounded-lg"></div>
         </div>
-      </div>
-    );
-  }
-
-  if (state === 'error') {
-    return (
-      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center font-sans">
-        <p className="text-slate-500 text-2xl font-medium">Display unavailable</p>
       </div>
     );
   }
